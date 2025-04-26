@@ -1,3 +1,5 @@
 /ws_livox
 /points3D.ply
 .vscode/settings.json
+lib/__pycache__/
+utils/__pycache__/
