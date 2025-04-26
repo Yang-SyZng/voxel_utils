@@ -14,7 +14,7 @@ def c2v(state: StatesGroup, feats_undistort,
     # if (flg_EKF_inited && !init_map) start
     #
     # 将点云转换到世界坐标系
-    world_lidar = vx.transform_lidar(state, feats_undistort, device)  # 列表形式
+    world_lidar = vx.transform_lidar(state, feats_undistort)  # 列表形式
     
     #
     # "for" change to "Batch" start
@@ -78,7 +78,7 @@ def c2v(state: StatesGroup, feats_undistort,
     print("pv_list size:", len(pv_list))
     # print("max_layer:", max_layer)
 
-    vx.buildVoxelMap(pv_list, max_voxel_size, max_layer,
+    vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, max_cov_points_size,
                 max_points_size, max_points_size, min_eigen_value, voxel_map)
     #
     # if (flg_EKF_inited && !init_map) end
