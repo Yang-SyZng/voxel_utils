@@ -1,7 +1,7 @@
 import torch
 from typing import List, Optional, Dict
 from lib.common_lib import StatesGroup, PointXYZI
-from utils import DOUBLE, HASH_P, MAX_N
+from utils import DOUBLE, HASH_P, MAX_N, DEVICE
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
 #  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|
@@ -106,9 +106,24 @@ class OctoTree:
         
 
     
-    def init_plane(self, point: pointWithCov, plane: Plane):
-        pass
-    
+    def init_plane(self, points: List[pointWithCov], plane: Plane):
+        plane.plane_cov = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
+        plane.covariance = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
+        plane.center = torch.zeros((3), dtype=DOUBLE, device=DEVICE)
+        plane.normal = torch.zeros((3), dtype=DOUBLE, device=DEVICE)
+        plane.points_size = len(points)
+        plane.radius = 0
+        
+        # 计算重心和协方差
+        for pv in points:
+            plane.covariance += pv.point @ pv.point.T
+            plane.center += pv.point
+        plane.center = plane.center / plane.points_size
+        plane.covariance = plane.covariance / plane.points_size - \
+                           plane.center * plane.center.T
+        
+        
+        
     def init_octo_tree(self):
         if len(self.temp_points_) < self.max_plane_update_threshold_:
             self.init_plane(self.temp_points_, self.plane_ptr_)
@@ -147,9 +162,9 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
                   max_points_size: int,
                   max_cov_points_size: int, planer_threshold: float, 
                   feat_map: Dict[VOXEL_LOC, OctoTree], 
-                  device="cuda"):
+                  ):
     for p_v in input_points:
-        loc_xyz = torch.zeros((3), dtype=DOUBLE, device=device)
+        loc_xyz = torch.zeros((3), dtype=DOUBLE, device=DEVICE)
         for i in range(3):
             loc_xyz[i] = p_v.point[i] / voxel_size
             if loc_xyz[i] < 0: 
@@ -173,24 +188,23 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
     for feat in feat_map:
         pass
 
-def transform_lidar(state: StatesGroup, input_cloud, device="cuda"):
+def transform_lidar(state: StatesGroup, input_cloud):
     """
     Transform points from LiDAR frame to world frame.
 
     Args:
         state (StatesGroup): State object with rot_end (3, 3) and pos_end (3, 1).
         input_cloud: List of points.
-        device (str): Device to place tensors on.
 
     Returns:
         list: List of PointXYZI objects in world frame.
     """
     # 提取点云的 x, y, z 和 intensity
     points_lidar = torch.tensor(
-        [[p.x, p.y, p.z] for p in input_cloud], dtype=DOUBLE, device=device
+        [[p.x, p.y, p.z] for p in input_cloud], dtype=DOUBLE, device=DEVICE
     )  # 形状 (N, 3)
     intensities = torch.tensor(
-        [p.intensity for p in input_cloud], dtype=DOUBLE, device=device
+        [p.intensity for p in input_cloud], dtype=DOUBLE, device=DEVICE
     )  # 形状 (N,)
 
     # state.rot_end 和 state.pos_end 已经是张量
@@ -230,7 +244,6 @@ def calcBodyCov(points: torch.Tensor, range_inc: float, degree_inc: float) -> to
     """
     # exacting property
     N = points.shape[0]
-    device = points.device
     dtype = points.dtype
     
     # 计算距离
@@ -238,14 +251,14 @@ def calcBodyCov(points: torch.Tensor, range_inc: float, degree_inc: float) -> to
     # 测距误差方差
     range_var = range_inc * range_inc  # 标量
     # 角度误差方差
-    direction_var = torch.zeros(2, 2, dtype=dtype, device=device)
+    direction_var = torch.zeros(2, 2, dtype=dtype, device=DEVICE)
     angle_var = (torch.sin(torch.deg2rad(torch.tensor(degree_inc))))**2
     direction_var[0, 0] = angle_var
     direction_var[1, 1] = angle_var  # 形状 (2, 2)
     # 归一化方向向量
     direction = points / rang   # 形状 (N, 3)
     # 反对称矩阵 (direction_hat)
-    direction_hat = torch.zeros(N, 3, 3, dtype=dtype, device=device)
+    direction_hat = torch.zeros(N, 3, 3, dtype=dtype, device=DEVICE)
     direction_hat[:, 0, 1] = -direction[:, 2]
     direction_hat[:, 0, 2] = direction[:, 1]
     direction_hat[:, 1, 0] = direction[:, 2]
@@ -254,7 +267,7 @@ def calcBodyCov(points: torch.Tensor, range_inc: float, degree_inc: float) -> to
     direction_hat[:, 2, 1] = direction[:, 0]  # 形状 (N, 3, 3)
     
     # 基向量
-    base_vector1 = torch.ones(N, 3, dtype=dtype, device=device)  # 形状 (N, 3)
+    base_vector1 = torch.ones(N, 3, dtype=dtype, device=DEVICE)  # 形状 (N, 3)
     base_vector1[:, 0] = 1.0
     base_vector1[:, 1] = 1.0
     base_vector1[:, 2] = -(direction[:, 0] + direction[:, 1]) / (direction[:, 2] + 1e-8)

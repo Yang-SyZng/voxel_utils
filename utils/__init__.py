@@ -5,3 +5,4 @@ import torch
 DOUBLE: Final = torch.double
 HASH_P: Final = 116101
 MAX_N: Final = 10000000000
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
