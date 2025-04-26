@@ -5,10 +5,10 @@ from utils import DOUBLE, HASH_P, MAX_N
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
 #  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|
-# CC |            LL |          AA /    AA |   SS /          SS /
-# CC |            LL |          AAAAAAAAAA |     SSSSSSS \     SSSSSSS \
-# CC |            LL |          AA  ____AA |           SS \           SS \
-#  CC \           LL |          AA |    AA |           SS |           SS |
+#  CC |           LL |          AA /    AA |   SS /          SS /
+#  CC |           LL |          AAAAAAAAAA |     SSSSSSS \     SSSSSSS \
+#  CC |           LL |          AA  ____AA |           SS \           SS \
+#  CC |           LL |          AA |    AA |           SS |           SS |
 #   CCCCCCCCC\    LLLLLLLLLL\   AA |    AA |    SSSSSSSS /     SSSSSSSS /
 #   \_________|   \_________|   \__|    \__|    \_______/      \_______/
 # Created by zty 2025/04/26
@@ -130,7 +130,18 @@ class OctoTree:
     
     def UpdateOctoTree(self):
         pass
-# functions
+
+
+# FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
+# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
+# FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
+# FFFFF\       UU |    UU |   NN \N\ NN |   CC |               TT |        II |     OO |      OO |   NN NN\  NN |    SSSSSSS \
+# FF  __|      UU |    UU |   NN |\NNNN |   CC |               TT |        II |     OO |      OO |   NN | NN\NN |           SS \
+# FF |         UU |    UU |   NN | \NNN |   CC |               TT |        II |      OO \    OO /    NN |  NNNN |           SS |
+# FF |         \UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
+# \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
+# Created by zty 2025/04/26
+
 def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer: int,
                   layer_point_size,
                   max_points_size: int,
@@ -160,7 +171,7 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
             feat_map[position].layer_point_size_ = layer_point_size
         
     for feat in feat_map:
-        
+        pass
 
 def transform_lidar(state: StatesGroup, input_cloud, device="cuda"):
     """

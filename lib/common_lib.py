@@ -4,14 +4,13 @@ from lib import DIM_STATE, INIT_COV
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
 #  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|
-# CC |            LL |          AA /    AA |   SS /          SS /
-# CC |            LL |          AAAAAAAAAA |     SSSSSSS \     SSSSSSS \
-# CC |            LL |          AA  ____AA |           SS \           SS \
-#  CC \           LL |          AA |    AA |           SS |           SS |
+#  CC |           LL |          AA /    AA |   SS /          SS /
+#  CC |           LL |          AAAAAAAAAA |     SSSSSSS \     SSSSSSS \
+#  CC |           LL |          AA  ____AA |           SS \           SS \
+#  CC |           LL |          AA |    AA |           SS |           SS |
 #   CCCCCCCCC\    LLLLLLLLLL\   AA |    AA |    SSSSSSSS /     SSSSSSSS /
 #   \_________|   \_________|   \__|    \__|    \_______/      \_______/
 # Created by zty 2025/04/26
-
 
 class PointXYZI:
     def __init__(self, x, y, z, intensity):
@@ -161,3 +160,14 @@ class StatesGroup:
         self.rot_end = torch.eye(3, dtype=self.dtype, device=self.device)
         self.pos_end = torch.zeros(3, 1, dtype=self.dtype, device=self.device)
         self.vel_end = torch.zeros(3, 1, dtype=self.dtype, device=self.device)
+
+
+# FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
+# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
+# FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
+# FFFFF\       UU |    UU |   NN \N\ NN |   CC |               TT |        II |     OO |      OO |   NN NN\  NN |    SSSSSSS \
+# FF  __|      UU |    UU |   NN |\NNNN |   CC |               TT |        II |     OO |      OO |   NN | NN\NN |           SS \
+# FF |         UU |    UU |   NN | \NNN |   CC |               TT |        II |      OO \    OO /    NN |  NNNN |           SS |
+# FF |         \UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
+# \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
+# Created by zty 2025/04/26
