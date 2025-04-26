@@ -72,6 +72,7 @@ class VOXEL_LOC:
 
     def __hash__(self):
         return ((((self.z) * HASH_P) % MAX_N + (self.y)) * HASH_P) % MAX_N + (self.x)
+    
 class OctoTree:
     def __init__(self, 
                  max_layer: int, 
@@ -104,10 +105,34 @@ class OctoTree:
         self.update_cov_enable_: bool = True
         
 
-
+    
+    def init_plane(self, point: pointWithCov, plane: Plane):
+        pass
+    
+    def init_octo_tree(self):
+        if len(self.temp_points_) < self.max_plane_update_threshold_:
+            self.init_plane(self.temp_points_, self.plane_ptr_)
+            if self.plane_ptr_.is_plane:
+                self.octo_state_ = 0
+                if len(self.temp_points_) > self.max_cov_points_size_:
+                    self.update_cov_enable_ = False
+                if len(self.temp_points_) > self.max_points_size_:
+                    self.update_enable_ = False
+        else:
+            self.octo_state_ = 1
+            self.cut_octo_tree()
+        
+        self.init_octo_ = True
+        self.new_points_num_ = 0
+        
+    def cut_octo_tree(self):
+        pass
+    
+    def UpdateOctoTree(self):
+        pass
 # functions
 def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer: int,
-                #   layer_point_size,
+                  layer_point_size,
                   max_points_size: int,
                   max_cov_points_size: int, planer_threshold: float, 
                   feat_map: Dict[VOXEL_LOC, OctoTree], 
@@ -118,9 +143,24 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
             loc_xyz[i] = p_v.point[i] / voxel_size
             if loc_xyz[i] < 0: 
                 loc_xyz[i] = loc_xyz[i] - 1.0
-    position = VOXEL_LOC(int(loc_xyz[0]), int(loc_xyz[1]), int(loc_xyz[2]))
-    if feat_map.get(position) == None:
-        pass
+        position = VOXEL_LOC(int(loc_xyz[0]), int(loc_xyz[1]), int(loc_xyz[2]))
+        if feat_map.get(position) == None:
+            feat_map[position].temp_points_.append(p_v)
+            feat_map[position].new_points_ += 1
+        else:
+            octo_tree = OctoTree(max_layer, 0, layer_point_size, max_points_size,
+                                 max_cov_points_size, planer_threshold)
+            feat_map[position] = octo_tree
+            feat_map[position].quater_length_ = voxel_size / 4
+            feat_map[position].voxel_center_[0] = (0.5 + position.x) * voxel_size
+            feat_map[position].voxel_center_[1] = (0.5 + position.y) * voxel_size
+            feat_map[position].voxel_center_[2] = (0.5 + position.z) * voxel_size
+            feat_map[position].temp_points_.append(p_v)
+            feat_map[position].new_points_num_ += 1
+            feat_map[position].layer_point_size_ = layer_point_size
+        
+    for feat in feat_map:
+        
 
 def transform_lidar(state: StatesGroup, input_cloud, device="cuda"):
     """
