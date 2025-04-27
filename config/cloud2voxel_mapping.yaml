@@ -1,0 +1,48 @@
+common:
+    lid_topic:  "/pointcloud"   #如果只是读取点云，请不要修改此项
+    imu_topic:  "/livox/imu"
+
+pointcloud:
+  file_path: "/home/y/projections/catkin_ws_cloud2VoxelMap/points3D.ply"  # 点云文件路径
+  file_format: "ply"  # 点云文件格式，可以选择 pcd 或 ply
+  
+preprocess:
+    lidar_type: 2                #1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for L515 LiDAR
+    scan_line: 32
+    blind: 0
+    point_filter_num: 1
+    calib_laser: false              # true for KITTI Odometry dataset
+
+mapping:
+    down_sample_size: 0.5
+    max_iteration: 3
+    voxel_size: 2.0
+    max_layer: 2                # 4 layer, 0, 1, 2, 3
+    layer_point_size: [5, 5, 5, 5, 5]
+    plannar_threshold: 0.01
+    max_points_size: 1000
+    max_cov_points_size: 1000
+
+noise_model:
+    ranging_cov: 0.04
+    angle_cov: 0.1
+    acc_cov_scale: 1.0
+    gyr_cov_scale: 0.5
+
+imu:
+    imu_en: false
+    extrinsic_T: [ 0.04165, 0.02326, -0.0284]
+    extrinsic_R: [ 1, 0, 0, 
+                   0, 1, 0, 
+                   0, 0, 1]
+
+visualization:
+    pub_voxel_map: true
+    publish_max_voxel_layer: 3         # only publish 0,1,2 layer's plane
+    pub_point_cloud: false
+    dense_map_enable: false
+    pub_point_cloud_skip: 1             # publish one points per five points
+
+Result:
+    write_kitti_log: false
+    result_path: "/home/b/kitt_log.txt"

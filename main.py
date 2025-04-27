@@ -1,14 +1,86 @@
+import argparse
+from argparse import Namespace
+import yaml
 import torch
 from typing import Dict
 from lib.common_lib import StatesGroup, PointXYZI
 from utils.voxel_map_util import pointWithCov, VOXEL_LOC, OctoTree
-from utils import DOUBLE
+from utils import DOUBLE, DEVICE
 import utils.voxel_map_util as vx
 
-def c2v(state: StatesGroup, feats_undistort,
-        ranging_cov: float, angle_cov: float, Lidar_offset_to_IMU, 
-        max_layer, max_voxel_size, max_points_size, max_cov_points_size, min_eigen_value, voxel_map, 
-        device="cuda"):
+
+def read_yaml(yaml_path: str):
+    """读取 YAML 配置文件，并转成 argparse.Namespace"""
+    with open(yaml_path, 'r') as f:
+        cfg = yaml.safe_load(f)
+
+    # 将多层嵌套展开成一个平面字典
+    flat_cfg = {}
+
+    def flatten(d, parent_key=''):
+        for k, v in d.items():
+            new_key = k if parent_key == '' else k
+            if isinstance(v, dict):
+                flatten(v, new_key)
+            else:
+                flat_cfg[new_key] = v
+
+    flatten(cfg)
+
+    return Namespace(**flat_cfg)
+
+def main(*args: Namespace):
+    if isinstance(args, tuple):
+        args = args[0]
+    # cummon params
+    lid_topic = args.lid_topic
+    imu_topic = args.imu_topic
+    
+    # noise model params
+    ranging_cov = args.ranging_cov
+    angle_cov = args.angle_cov
+    gyr_cov_scale = args.gyr_cov_scale
+    acc_cov_scale = args.acc_cov_scale
+    
+    # imu params, current version does not support imu
+    imu_en = args.imu_en
+    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE)
+    extrinR = torch.tensor(args.extrinsic_R, dtype=DOUBLE, device=DEVICE).reshape(3, 3)
+    
+    # mapping algorithm params
+    NUM_MAX_ITERATIONS = args.max_iteration
+    max_points_size = args.max_points_size
+    max_cov_points_size = args.max_cov_points_size
+    layer_point_size = args.layer_point_size
+    max_layer = args.max_layer
+    max_voxel_size = args.max_voxel_size
+    filter_size_surf_min = args.down_sample_size
+    plannar_threshold = args.plannar_threshold # min_eigen_value
+    
+    # preprocess params
+    # bline = args.blind # pre->bind
+    calib_laser = args.calib_laser 
+    # lidar_type = args.lidar_type # p_pre->lidar_type
+    scan_line = args.scan_line # p_pre->N_SCANS
+    
+    # visualization params
+    publish_voxel_map = args.pub_voxel_map
+    publish_max_voxel_layer = args.publish_max_voxel_layer
+    publish_point_cloud = args.pub_point_cloud
+    pub_point_cloud_skip = args.pub_point_cloud_skip
+    dense_map_en = args.dense_map_enable
+    
+    # result params
+    write_kitti_log = args.write_kitti_log
+    result_path = args.result_path
+    
+    
+    print(layer_point_size)
+    exit(-1)
+    # state: StatesGroup, feats_undistort,
+    # ranging_cov: float, angle_cov: float, Lidar_offset_to_IMU, 
+    # max_layer, max_voxel_size, max_points_size, max_cov_points_size, min_eigen_value, voxel_map, 
+    # device="cuda"
     
     #
     # if (flg_EKF_inited && !init_map) start
@@ -84,17 +156,21 @@ def c2v(state: StatesGroup, feats_undistort,
     # if (flg_EKF_inited && !init_map) end
     #
 if __name__ == '__main__':
-    # 测试用例
-    feats_undistort = [PointXYZI(-9.10841, -6.09084, -1.2345, 0.0), PointXYZI(-9.10841, -6.09084, -1.2345, 0.0)]
-    state = StatesGroup()
-    range_inc = 0.04
-    degree_inc = 0.1
-    Lidar_offset_to_IMU = torch.tensor([[0, 0, 0]], dtype=DOUBLE, device="cuda")
-    max_layer = 2
-    max_voxel_size = 2
-    max_points_size = 1000
-    max_cov_points_size = 1000
-    min_eigen_value = 0.01
-    voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
-    c2v(state, feats_undistort, range_inc, degree_inc, Lidar_offset_to_IMU,
-        max_layer, max_voxel_size, max_points_size, max_cov_points_size, min_eigen_value, voxel_map)
+    args = read_yaml("config/cloud2voxel_mapping.yaml")
+    print(args)
+    main(args)
+    
+    # # 测试用例
+    # feats_undistort = [PointXYZI(-9.10841, -6.09084, -1.2345, 0.0), PointXYZI(-9.10841, -6.09084, -1.2345, 0.0)]
+    # state = StatesGroup()
+    # range_inc = 0.04
+    # degree_inc = 0.1
+    # Lidar_offset_to_IMU = torch.tensor([[0, 0, 0]], dtype=DOUBLE, device="cuda")
+    # max_layer = 2
+    # max_voxel_size = 2
+    # max_points_size = 1000
+    # max_cov_points_size = 1000
+    # min_eigen_value = 0.01
+    # voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
+    # c2v(state, feats_undistort, range_inc, degree_inc, Lidar_offset_to_IMU,
+    #     max_layer, max_voxel_size, max_points_size, max_cov_points_size, min_eigen_value, voxel_map)
