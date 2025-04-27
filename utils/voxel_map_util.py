@@ -3,6 +3,8 @@ from typing import List, Optional, Dict
 from lib.common_lib import StatesGroup, PointXYZI
 from utils import DOUBLE, HASH_P, MAX_N, DEVICE
 
+plane_id = 0
+
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
 #  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|
 #  CC |           LL |          AA /    AA |   SS /          SS /
@@ -107,6 +109,8 @@ class OctoTree:
 
     
     def init_plane(self, points: List[pointWithCov], plane: Plane):
+        global plane_id
+        
         plane.plane_cov = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         plane.covariance = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
         plane.center = torch.zeros((3), dtype=DOUBLE, device=DEVICE)
@@ -122,7 +126,89 @@ class OctoTree:
         plane.covariance = plane.covariance / plane.points_size - \
                            plane.center * plane.center.T
         
+        # 特征值分解
+        eigenvalues, eigenvectors = torch.linalg.eigh(plane.covariance)
+        evals = eigenvalues  # 特征值对角矩阵
+        evecs = eigenvectors # 特征向量
         
+        # 找到最小、中间、最大特征值的索引
+        evals_min = torch.argmin(evals)
+        evals_max = torch.argmax(evals)
+        evals_mid = 3 - evals_min - evals_max
+        evec_min = evecs[:, evals_min].reshape(3, 1)
+        evec_mid = evecs[:, evals_mid].reshape(3, 1)
+        evec_max = evecs[:, evals_max].reshape(3, 1)
+        
+        # 平面协方差计算（保持不变）
+        J_Q = torch.tensor([[1.0 / plane.points_size, 0.0, 0.0],
+                            [0.0, 1.0 / plane.points_size, 0.0],
+                            [0.0, 0.0, 1.0 / plane.points_size]], dtype=DOUBLE, device=DEVICE)
+        
+        if evals[evals_min] < self.planer_threshold_:
+            for i in range(len(points)):
+                J = torch.zeros(6, 3, dtype=DOUBLE, device=DEVICE)
+                F = torch.zeros(3, 3, dtype=DOUBLE, device=DEVICE)
+                for m in range(3):
+                    if m != evals_min:
+                        F_m = ((points[i].point - plane.center).t() /
+                            (plane.points_size * (evals[evals_min] - evals[m]))) @ \
+                            (evecs[:, m].reshape(3, 1) @ evecs[:, evals_min].reshape(1, 3) +
+                            evecs[:, evals_min].reshape(3, 1) @ evecs[:, m].reshape(1, 3))
+                        F[m, :] = F_m
+                    else:
+                        F[m, :] = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+
+                J[:3, :] = evecs @ F
+                J[3:6, :] = J_Q
+                plane.plane_cov += J @ points[i].cov @ J.t()
+            plane.normal = evec_min
+            plane.y_normal = evec_mid
+            plane.x_normal = evec_max
+            plane.min_eigen_value = evals[evals_min].item()
+            plane.mid_eigen_value = evals[evals_mid].item()
+            plane.max_eigen_value = evals[evals_max].item()
+            plane.radius = torch.sqrt(evals[evals_max]).item()
+            plane.d = -(plane.normal[0] * plane.center[0] +
+                        plane.normal[1] * plane.center[1] +
+                        plane.normal[2] * plane.center[2]).item()
+            plane.is_plane = True
+            
+            if plane.last_update_points_size == 0:
+                plane.last_update_points_size = plane.points_size
+                plane.is_update = True
+            elif plane.points_size - plane.last_update_points_size > 100:
+                plane.last_update_points_size = plane.points_size
+                plane.is_update = True
+
+            if not plane.is_init:
+                plane.id = plane_id
+                plane_id += 1
+                plane.is_init = True
+
+        else:
+            if not plane.is_init:
+                plane.id = plane_id
+                plane_id += 1
+                plane.is_init = True
+            
+            if plane.last_update_points_size == 0:
+                plane.last_update_points_size = plane.points_size
+                plane.is_update = True
+            elif plane.points_size - plane.last_update_points_size > 100:
+                plane.last_update_points_size = plane.points_size
+                plane.is_update = True
+            
+            plane.is_plane = False
+            plane.normal = evec_min
+            plane.y_normal = evec_mid
+            plane.x_normal = evec_max
+            plane.min_eigen_value = evals[evals_min].item()
+            plane.mid_eigen_value = evals[evals_mid].item()
+            plane.max_eigen_value = evals[evals_max].item()
+            plane.radius = torch.sqrt(evals[evals_max]).item()
+            plane.d = -(plane.normal[0] * plane.center[0] +
+                        plane.normal[1] * plane.center[1] +
+                        plane.normal[2] * plane.center[2]).item()
         
     def init_octo_tree(self):
         if len(self.temp_points_) < self.max_plane_update_threshold_:
@@ -170,7 +256,7 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
             if loc_xyz[i] < 0: 
                 loc_xyz[i] = loc_xyz[i] - 1.0
         position = VOXEL_LOC(int(loc_xyz[0]), int(loc_xyz[1]), int(loc_xyz[2]))
-        if feat_map.get(position) == None:
+        if position in feat_map:
             feat_map[position].temp_points_.append(p_v)
             feat_map[position].new_points_ += 1
         else:
@@ -185,8 +271,8 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
             feat_map[position].new_points_num_ += 1
             feat_map[position].layer_point_size_ = layer_point_size
         
-    for feat in feat_map:
-        pass
+    for _, value in feat_map.items():
+        value.init_octo_tree()
 
 def transform_lidar(state: StatesGroup, input_cloud):
     """
