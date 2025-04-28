@@ -2,12 +2,21 @@ import argparse
 from argparse import Namespace
 import yaml
 import torch
-from typing import Dict
-from lib.common_lib import StatesGroup, PointXYZI
+from typing import Final, List, Dict
+from lib.common_lib import StatesGroup, PointXYZI, PointXYZINormal
+from lib import DIM_STATE
 from utils.voxel_map_util import pointWithCov, VOXEL_LOC, OctoTree
 from utils import DOUBLE, DEVICE
 import utils.voxel_map_util as vx
+import open3d as o3d
+INIT_TIME: Final = 0.0
+CALIB_ANGLE_COV: Final = 0.01
 
+
+feats_undistort: List[PointXYZI] = []
+feats_down_body: List[PointXYZI] = []
+laserCloudOri: List[PointXYZI] = []
+laserCloudNoeffect: List[PointXYZI] = []
 
 def read_yaml(yaml_path: str):
     """读取 YAML 配置文件，并转成 argparse.Namespace"""
@@ -28,6 +37,20 @@ def read_yaml(yaml_path: str):
     flatten(cfg)
 
     return Namespace(**flat_cfg)
+
+def readPointCloud(file_path: str, file_format: str,):
+    if file_format not in ["pcd", "ply"]:
+        raise ValueError(f"Unsupported file format: {file_format}")
+
+    try:
+        pcd = o3d.io.read_point_cloud(file_path)
+    except Exception as e:
+        raise ValueError(f"Couldn't read {file_format.upper()} file {file_path}: {str(e)}")
+
+    if not pcd.has_points():
+        raise ValueError(f"Loaded point cloud is empty: {file_path}")
+
+    return pcd
 
 def main(*args: Namespace):
     if isinstance(args, tuple):
@@ -74,13 +97,46 @@ def main(*args: Namespace):
     write_kitti_log = args.write_kitti_log
     result_path = args.result_path
     
+    file_path = args.file_path
+    file_format = args.file_format
     
-    print(layer_point_size)
-    exit(-1)
-    # state: StatesGroup, feats_undistort,
-    # ranging_cov: float, angle_cov: float, Lidar_offset_to_IMU, 
-    # max_layer, max_voxel_size, max_points_size, max_cov_points_size, min_eigen_value, voxel_map, 
-    # device="cuda"
+    pcd = readPointCloud(file_path, file_format)
+    
+    # solution: 18x1 列向量
+    solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
+
+    # G, H_T_H, I_STATE: 18x18 矩阵
+    G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+    H_T_H = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+    I_STATE = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+    
+    # rot_add, t_add: 3D 向量 (3x1)
+    rot_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+    t_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+    state_propagat = StatesGroup()
+    pointOri = PointXYZINormal()
+    pointSel = PointXYZINormal()
+    coeff = PointXYZINormal()
+    
+    corr_normvect: List[PointXYZI] = []
+    frame_num: int = 0
+    
+    deltaT: int = 0
+    deltaR: int = 0
+    aver_time_consu: int = 0
+    flg_EKF_inited: bool = False
+    flg_EKF_converged: bool = False
+    EKF_stop_flg: bool = False
+    is_first_frame: bool = True
+    #
+    downSizeFilterSurf = None
+    #
+    
+    # voxel map 参数
+    voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
+
+
+    state = state_propagat
     
     #
     # if (flg_EKF_inited && !init_map) start
@@ -93,12 +149,12 @@ def main(*args: Namespace):
     #
     # 提取 feats_undistort 的点 (LiDAR 坐标系)
     points_this = torch.tensor(
-        [[p.x, p.y, p.z] for p in feats_undistort], dtype=DOUBLE, device=device
+        [[p.x, p.y, p.z] for p in feats_undistort], dtype=DOUBLE, device=DEVICE
     )  # 形状 (N, 3)
 
     # 提取 world_lidar 的点 (世界坐标系)
     points_world = torch.tensor(
-        [[p.x, p.y, p.z] for p in world_lidar], dtype=DOUBLE, device=device
+        [[p.x, p.y, p.z] for p in world_lidar], dtype=DOUBLE, device=DEVICE
     )  # 形状 (N, 3)
 
     # 如果 z=0，设置为 0.001
@@ -110,7 +166,7 @@ def main(*args: Namespace):
     points_this = points_this + Lidar_offset_to_IMU  # 形状 (N, 3)
     
     # 计算叉积矩阵
-    point_crossmat = torch.zeros(points_this.shape[0], 3, 3, dtype=DOUBLE, device=device)
+    point_crossmat = torch.zeros(points_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
     point_crossmat[:, 0, 1] = -points_this[:, 2]
     point_crossmat[:, 0, 2] = points_this[:, 1]
     point_crossmat[:, 1, 0] = points_this[:, 2]

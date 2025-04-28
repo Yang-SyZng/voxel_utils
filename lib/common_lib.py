@@ -1,5 +1,5 @@
 import torch
-from utils import DOUBLE
+from utils import DOUBLE, DEVICE
 from lib import DIM_STATE, INIT_COV
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
@@ -14,11 +14,18 @@ from lib import DIM_STATE, INIT_COV
 
 class PointXYZI:
     def __init__(self, x, y, z, intensity):
-        self.x = float(x)
-        self.y = float(y)
-        self.z = float(z)
-        self.intensity = float(intensity)
-
+        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
+        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
+        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
+        self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
+        
+class PointXYZINormal:
+    def __init__(self, x, y, z, intensity, normal):
+        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
+        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
+        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
+        self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
+        self.normal = torch.tensor(normal, dtype=torch.int, device=DEVICE)
 
 class StatesGroup:
     def __init__(self, device="cuda"):
