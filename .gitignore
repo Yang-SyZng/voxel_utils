@@ -3,3 +3,4 @@
 .vscode/settings.json
 lib/__pycache__/
 utils/__pycache__/
+test.py
