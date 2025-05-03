@@ -1,5 +1,6 @@
 import torch
-from utils import DOUBLE, DEVICE
+from typing import List
+from utils import DOUBLE, DEVICE, FLOAT64
 from lib import DIM_STATE, INIT_COV
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
@@ -12,21 +13,39 @@ from lib import DIM_STATE, INIT_COV
 #   \_________|   \_________|   \__|    \__|    \_______/      \_______/
 # Created by zty 2025/04/26
 
-class PointXYZI:
-    def __init__(self, x, y, z, intensity):
-        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
-        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
-        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
-        self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
-        
-class PointXYZINormal:
-    def __init__(self, x, y, z, intensity, normal):
-        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
-        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
-        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
-        self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
-        self.normal = torch.tensor(normal, dtype=torch.int, device=DEVICE)
+# Vector3d shape(3, 1)
+# Matrix3d shape(3, 3)
+cov_acc = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
+cov_gyr = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
+Eye3d = torch.eye(3, dtype=DOUBLE, device=DEVICE)
+Eye3f = torch.eye(3, dtype=FLOAT64, device=DEVICE)
 
+# PointCloudXYZI = List[PointCloudXYZINormal]
+
+class PointXYZI:
+    def __init__(self, x=None, y=None, z=None, intensity=None):
+        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
+        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
+        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
+        self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
+
+class PointCloudXYZINormal:
+    def __init__(self, x=None, y=None, z=None, intensity=None, nx=None, ny=None, nz=None, curvature=None):
+        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
+        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
+        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
+        self.intensity = torch.tensor(intensity, dtype=DOUBLE, device=DEVICE)
+        self.nx = torch.tensor(nx, dtype=DOUBLE, device=DEVICE)
+        self.ny = torch.tensor(ny, dtype=DOUBLE, device=DEVICE)
+        self.nz = torch.tensor(nz, dtype=DOUBLE, device=DEVICE)
+        self.curvature = torch.tensor(curvature, dtype=DOUBLE, device=DEVICE)
+    
+class MeasureGroup:
+    def __init__(self):
+        self.lidar_beg_time = 0.0
+        self.lidar: List[PointCloudXYZINormal] = None
+        self.imu = None
+        
 class StatesGroup:
     def __init__(self, device="cuda"):
         """
@@ -179,8 +198,6 @@ class StatesGroup:
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
 # Created by zty 2025/04/26
 
-import torch
-
 def Exp(v1: float, v2: float, v3: float) -> torch.Tensor:
     """
     计算 3x3 旋转矩阵，使用Roderigous Tranformation。
@@ -216,7 +233,7 @@ def Exp(v1: float, v2: float, v3: float) -> torch.Tensor:
     else:
         return Eye3
     
-def only_propag(meas: MeasureGroup, state_inout: StatesGroup, pcl_out: 'PointXYZI') -> None:
+def only_propag(meas: MeasureGroup, state_inout: StatesGroup, pcl_out: PointCloudXYZI) -> None:
         pcl_beg_time = meas.lidar_beg_time
 
         # 设置输出点云
@@ -261,3 +278,6 @@ def only_propag(meas: MeasureGroup, state_inout: StatesGroup, pcl_out: 'PointXYZ
         # 更新状态
         state_inout.rot_end = state_inout.rot_end @ Exp_f
         state_inout.pos_end = state_inout.pos_end + state_inout.vel_end * dt
+        
+def Process(meas: MeasureGroup, stat: StatesGroup, cur_pcl_un_: List[PointCloudXYZINormal]):
+    cov_acc = Eye3d 

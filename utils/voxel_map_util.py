@@ -17,10 +17,10 @@ plane_id = 0
 
 class Ptpl:
     def __init__(self):
-        self.point: torch.Tensor = torch.zeros(3, dtype=DOUBLE)
-        self.normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE)
-        self.center: torch.Tensor = torch.zeros(3, dtype=DOUBLE)
-        self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE)
+        self.point: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+        self.normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+        self.center: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+        self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         self.d: float = 0.0
         self.layer: int = 0
 
@@ -37,12 +37,12 @@ class pointWithCov:
 class Plane:
     def __init__(self):
         # 
-        self.center: torch.Tensor = torch.zeros(3, dtype=DOUBLE)       
-        self.normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE)       
-        self.y_normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE)     
-        self.x_normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE)     
-        self.covariance: torch.Tensor = torch.zeros((3, 3), dtype=DOUBLE)  
-        self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE)   
+        self.center: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)       
+        self.normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)       
+        self.y_normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)     
+        self.x_normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)     
+        self.covariance: torch.Tensor = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)  
+        self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)   
 
         self.radius: float = 0.0
         self.min_eigen_value: float = 1.0
