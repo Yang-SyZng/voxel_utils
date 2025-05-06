@@ -3,7 +3,8 @@ from argparse import Namespace
 import yaml
 import torch
 from typing import Final, List, Dict
-from lib.common_lib import StatesGroup, PointXYZI, PointXYZINormal
+import lib.common_lib as cl
+from lib.common_lib import StatesGroup, PointXYZI, ImuProcess # PointXYZINormal
 from lib import DIM_STATE
 from utils.voxel_map_util import pointWithCov, VOXEL_LOC, OctoTree
 from utils import DOUBLE, DEVICE
@@ -67,7 +68,7 @@ def main(*args: Namespace):
     
     # imu params, current version does not support imu
     imu_en = args.imu_en
-    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE)
+    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE).reshape(3, 1)
     extrinR = torch.tensor(args.extrinsic_R, dtype=DOUBLE, device=DEVICE).reshape(3, 3)
     
     # mapping algorithm params
@@ -76,7 +77,7 @@ def main(*args: Namespace):
     max_cov_points_size = args.max_cov_points_size
     layer_point_size = args.layer_point_size
     max_layer = args.max_layer
-    max_voxel_size = args.max_voxel_size
+    max_voxel_size = args.voxel_size
     filter_size_surf_min = args.down_sample_size
     plannar_threshold = args.plannar_threshold # min_eigen_value
     
@@ -108,15 +109,15 @@ def main(*args: Namespace):
     # G, H_T_H, I_STATE: 18x18 矩阵
     G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
     H_T_H = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
-    I_STATE = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+    I_STATE = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
     
     # rot_add, t_add: 3D 向量 (3x1)
     rot_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
     t_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
     state_propagat = StatesGroup()
-    pointOri = PointXYZINormal()
-    pointSel = PointXYZINormal()
-    coeff = PointXYZINormal()
+    # pointOri = PointXYZINormal()
+    # pointSel = PointXYZINormal()
+    # coeff = PointXYZINormal()
     
     corr_normvect: List[PointXYZI] = []
     frame_num: int = 0
@@ -131,19 +132,28 @@ def main(*args: Namespace):
     #
     downSizeFilterSurf = None
     #
+
+    p_imu = ImuProcess()
+    p_imu.imu_en = imu_en
+    extT = extrinT.clone()
+    extR = extrinR.clone()
+    p_imu.set_extrinsic(transl=extT, rot=extR)
+
+    print("use imu") if imu_en else print("no imu")
     
-    # voxel map 参数
+    p_imu.set_gyr_cov_scale(torch.tensor([[gyr_cov_scale], [gyr_cov_scale], [gyr_cov_scale]], dtype=DOUBLE, device=DEVICE))
+    p_imu.set_acc_cov_scale(torch.tensor([[acc_cov_scale], [acc_cov_scale], [acc_cov_scale]], dtype=DOUBLE, device=DEVICE))
+    p_imu.set_gyr_bias_cov(torch.tensor([[0.00001], [0.00001], [0.00001]], dtype=DOUBLE, device=DEVICE))
+    p_imu.set_acc_bias_cov(torch.tensor([[0.00001], [0.00001], [0.00001]], dtype=DOUBLE, device=DEVICE))
+
+    init_map: bool = False
     voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
-
-
     state = state_propagat
-    
     #
     # if (flg_EKF_inited && !init_map) start
     #
     # 将点云转换到世界坐标系
     world_lidar = vx.transform_lidar(state, feats_undistort)  # 列表形式
-    
     #
     # "for" change to "Batch" start
     #

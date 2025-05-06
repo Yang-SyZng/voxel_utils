@@ -12,15 +12,13 @@ from lib import DIM_STATE, INIT_COV
 #        VV /        AA |    AA |  LLLLLLLLLL\   UUUUUUUU /   EEEEEEEEEEE\   SSSSSSSS /
 #        \_/         \__|    \__|  \_________|   \_______/    \__________|   \_______/
 # Created by zty 2025/05/03
-
-# Vector3d shape(3, 1)
-# Matrix3d shape(3, 3)
-cov_acc = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
-cov_gyr = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
 Eye3d = torch.eye(3, dtype=DOUBLE, device=DEVICE)
 Eye3f = torch.eye(3, dtype=FLOAT64, device=DEVICE)
-cov_acc_scale = torch.tensor([[1], [1], [1]], dtype=DOUBLE, device=DEVICE)
-cov_gyr_scale = torch.tensor([[1], [1], [1]], dtype=DOUBLE, device=DEVICE)
+Zero3d = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+Zero3f = torch.zeros((3, 1), dtype=FLOAT64, device=DEVICE)
+Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+# Vector3d shape(3, 1)
+# Matrix3d shape(3, 3)
 
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\     EEEEEEEEEEE\  SSSSSSSS\
@@ -60,25 +58,20 @@ class MeasureGroup:
         self.imu = None
         
 class StatesGroup:
-    def __init__(self, device="cuda"):
+    def __init__(self):
         """
         Initialize the state group.
-
-        Args:
-            device (str): Device to place tensors on ("cuda" or "cpu").
         """
-        self.device = device
-        self.dtype = DOUBLE
 
-        # 初始化状态
-        self.rot_end = torch.eye(3, dtype=self.dtype, device=device)  # 形状 (3, 3)
-        self.pos_end = torch.zeros(3, 1, dtype=self.dtype, device=device)  # 形状 (3, 1)
-        self.vel_end = torch.zeros(3, 1, dtype=self.dtype, device=device)  # 形状 (3, 1)
-        self.bias_g = torch.zeros(3, 1, dtype=self.dtype, device=device)  # 形状 (3, 1)
-        self.bias_a = torch.zeros(3, 1, dtype=self.dtype, device=device)  # 形状 (3, 1)
-        self.gravity = torch.zeros(3, 1, dtype=self.dtype, device=device)  # 形状 (3, 1)
-        self.cov = torch.eye(DIM_STATE, dtype=self.dtype, device=device) * INIT_COV  # 形状 (18, 18)
-    def __add__(self, state_add):
+        self.rot_end = torch.eye(3, dtype=DOUBLE, device=DEVICE)  # 形状 (3, 3)
+        self.pos_end = Zero3d.clone()
+        self.vel_end = Zero3d.clone()
+        self.bias_g = Zero3d.clone()
+        self.bias_a = Zero3d.clone()
+        self.gravity = Zero3d.clone()
+        self.cov = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE) * INIT_COV  # 形状 (18, 18)
+        
+    def __add__(self, state_add: torch.Tensor):
         """
         Add a state increment to the current state.
 
@@ -88,35 +81,14 @@ class StatesGroup:
         Returns:
             StatesGroup: New state group with updated values.
         """
-        new_state = StatesGroup(device=self.device)
-
-        # 旋转增量：Exp mapping（李代数到李群）
-        theta = state_add[:3].flatten()  # 形状 (3,)
-        theta_norm = torch.norm(theta)
-        if theta_norm < 1e-8:
-            rot_increment = torch.eye(3, dtype=self.dtype, device=self.device)
-        else:
-            # 罗德里格斯公式
-            skew_theta = torch.zeros(3, 3, dtype=self.dtype, device=self.device)
-            skew_theta[0, 1] = -theta[2]
-            skew_theta[0, 2] = theta[1]
-            skew_theta[1, 0] = theta[2]
-            skew_theta[1, 2] = -theta[0]
-            skew_theta[2, 0] = -theta[1]
-            skew_theta[2, 1] = theta[0]
-            rot_increment = (torch.eye(3, dtype=self.dtype, device=self.device) +
-                             torch.sin(theta_norm) / theta_norm * skew_theta +
-                             (1 - torch.cos(theta_norm)) / (theta_norm ** 2) * skew_theta @ skew_theta)
-        new_state.rot_end = self.rot_end @ rot_increment
-
-        # 其他状态直接加法
-        new_state.pos_end = self.pos_end + state_add[3:6].reshape(3, 1)
-        new_state.vel_end = self.vel_end + state_add[6:9].reshape(3, 1)
-        new_state.bias_g = self.bias_g + state_add[9:12].reshape(3, 1)
-        new_state.bias_a = self.bias_a + state_add[12:15].reshape(3, 1)
-        new_state.gravity = self.gravity + state_add[15:18].reshape(3, 1)
-        new_state.cov = self.cov.clone()
-
+        new_state = StatesGroup()
+        new_state.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
+        new_state.pos_end = self.pos_end + state_add[3: 6].reshape(3, 1)
+        new_state.vel_end = self.vel_end + state_add[6: 9].reshape(3, 1)
+        new_state.bias_g = self.bias_g + state_add[9: 12].reshape(3, 1)
+        new_state.bias_a = self.bias_a + state_add[12: 15].reshape(3, 1)
+        new_state.gravity = self.gravity + state_add[15: 18].reshape(3, 1)
+        new_state.cov = self.cov
         return new_state
 
     def __iadd__(self, state_add):
@@ -129,25 +101,7 @@ class StatesGroup:
         Returns:
             StatesGroup: Self with updated values.
         """
-        # 旋转增量
-        theta = state_add[:3].flatten()
-        theta_norm = torch.norm(theta)
-        if theta_norm < 1e-8:
-            rot_increment = torch.eye(3, dtype=self.dtype, device=self.device)
-        else:
-            skew_theta = torch.zeros(3, 3, dtype=self.dtype, device=self.device)
-            skew_theta[0, 1] = -theta[2]
-            skew_theta[0, 2] = theta[1]
-            skew_theta[1, 0] = theta[2]
-            skew_theta[1, 2] = -theta[0]
-            skew_theta[2, 0] = -theta[1]
-            skew_theta[2, 1] = theta[0]
-            rot_increment = (torch.eye(3, dtype=self.dtype, device=self.device) +
-                             torch.sin(theta_norm) / theta_norm * skew_theta +
-                             (1 - torch.cos(theta_norm)) / (theta_norm ** 2) * skew_theta @ skew_theta)
-        self.rot_end = self.rot_end @ rot_increment
-
-        # 其他状态
+        self.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
         self.pos_end += state_add[3:6].reshape(3, 1)
         self.vel_end += state_add[6:9].reshape(3, 1)
         self.bias_g += state_add[9:12].reshape(3, 1)
@@ -156,7 +110,7 @@ class StatesGroup:
 
         return self
 
-    def __sub__(self, other):
+    def __sub__(self, other: 'StatesGroup'):
         """
         Compute the difference between two states.
 
@@ -166,24 +120,10 @@ class StatesGroup:
         Returns:
             torch.Tensor: Shape (DIM_STATE, 1), state difference.
         """
-        diff = torch.zeros(DIM_STATE, 1, dtype=self.dtype, device=self.device)
+        diff = torch.zeros(DIM_STATE, 1, dtype=DOUBLE, device=DEVICE)
 
-        # 旋转差：Log mapping（李群到李代数）
-        rotd = (other.rot_end.t() @ self.rot_end)
-        trace = torch.trace(rotd)
-        if trace > 3 - 1e-8:
-            theta = torch.zeros(3, dtype=self.dtype, device=self.device)
-        else:
-            theta_norm = torch.acos((trace - 1) / 2)
-            log_rot = theta_norm / (2 * torch.sin(theta_norm)) * (rotd - rotd.t())
-            theta = torch.tensor([
-                log_rot[2, 1],  # theta_x
-                log_rot[0, 2],  # theta_y
-                log_rot[1, 0]   # theta_z
-            ], dtype=self.dtype, device=self.device)
-        diff[:3, 0] = theta
-
-        # 其他状态差
+        rotd = other.rot_end.T * self.rot_end
+        diff[0:3] = Log(rotd)
         diff[3:6] = self.pos_end - other.pos_end
         diff[6:9] = self.vel_end - other.vel_end
         diff[9:12] = self.bias_g - other.bias_g
@@ -196,10 +136,122 @@ class StatesGroup:
         """
         Reset pose-related states to zero.
         """
-        self.rot_end = torch.eye(3, dtype=self.dtype, device=self.device)
-        self.pos_end = torch.zeros(3, 1, dtype=self.dtype, device=self.device)
-        self.vel_end = torch.zeros(3, 1, dtype=self.dtype, device=self.device)
+        self.rot_end = torch.eye(3, dtype=DOUBLE, device=DEVICE)
+        self.pos_end = torch.zeros(3, 1, dtype=DOUBLE, device=DEVICE)
+        self.vel_end = torch.zeros(3, 1, dtype=DOUBLE, device=DEVICE)
 
+class ImuProcess:
+    def __init__(self):
+        self.b_first_frame_: bool = True
+        self.imu_need_init_: bool = True
+        self.start_timestamp_: float = -1
+        self.imu_en: bool = True
+        self.init_iter_num: int = 1
+        self.cov_acc = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
+        self.cov_gyr = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
+
+        self.cov_acc_scale = torch.tensor([[1], [1], [1]], dtype=DOUBLE, device=DEVICE)
+        self.cov_gyr_scale = torch.tensor([[1], [1], [1]], dtype=DOUBLE, device=DEVICE)
+        
+        self.cov_bias_gyr = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
+        self.cov_bias_acc = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
+
+        self.mean_acc = torch.tensor([[0], [0], [-1.0]], dtype=DOUBLE, device=DEVICE)
+        self.mean_gyr = torch.tensor([[0], [0], [0]], dtype=DOUBLE, device=DEVICE)
+
+        self.angvel_last = Zero3d.clone()
+        self.Lid_offset_to_IMU = Lidar_offset_to_IMU.clone()
+        self.Lid_rot_to_IMU = Eye3d.clone()
+        # self.last_imu_
+
+    def set_extrinsic(self, T: torch.Tensor = None, 
+                    transl: torch.Tensor = None, 
+                    rot: torch.Tensor = None):
+        """
+        set IMU extrinsic
+        
+        Args:
+            T (torch.Tensor): 4x4Transformation Matrix
+            transl (torch.Tensor): 3D translation vector
+            rot (torch.Tensor): 3x3 rotation matrix
+        """
+        if T is not None:
+            assert T.shape == (4, 4), "T must be 4x4 matrix"
+            self.Lid_offset_to_IMU = T[:3, 3]
+            self.Lid_rot_to_IMU = T[:3, :3]
+        
+        elif transl is not None and rot is None:
+            assert transl.shape == (3, 1), "transl must be 3D vector"
+            self.Lid_offset_to_IMU = transl
+            self.Lid_rot_to_IMU = Eye3d.clone()
+        
+        elif transl is not None and rot is not None:
+            assert transl.shape == (3, 1), "transl must be 3D vector"
+            assert rot.shape == (3,3), "rot must be 3x3 matrix"
+            self.Lid_offset_to_IMU = transl
+            self.Lid_rot_to_IMU = rot
+        
+        else:
+            raise ValueError("Invalid arguments: must provide T or transl (+ optional rot)")
+    
+    def set_gyr_cov_scale(self, scaler: torch.Tensor):
+        self.cov_gyr_scale = scaler
+
+    def set_acc_cov_scale(self, scaler: torch.Tensor):
+        self.cov_acc_scale = scaler
+    
+    def set_gyr_bias_cov(self, b_g: torch.Tensor):
+        self.cov_bias_gyr = b_g
+
+    def set_acc_bias_cov(self, b_a: torch.Tensor):
+        self.cov_bias_acc = b_a
+
+    def only_propag(self, meas: MeasureGroup, state_inout: StatesGroup, pcl_out: List[PointCloudXYZINormal]):
+
+        pcl_beg_time = meas.lidar_beg_time
+
+        # 设置输出点云
+        pcl_out = meas.lidar
+
+        # if len(pcl_out) > 0:
+        #     pcl_end_time = pcl_beg_time + pcl_out.points[-1, 3] / 1000.0
+        # else:
+        #     pcl_end_time = pcl_beg_time
+
+        # 计算时间差 dt
+        if b_first_frame_:
+            dt = 0.1
+            b_first_frame_ = False
+            time_last_scan_ = pcl_beg_time
+        else:
+            dt = pcl_beg_time - time_last_scan_
+            time_last_scan_ = pcl_beg_time
+
+        Exp_f = Exp(state_inout.bias_g, dt)  # 使用新的 Exp 函数
+
+        F_x = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
+        cov_w = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+
+        # 设置 F_x 的子块
+        F_x[0:3, 0:3] = Exp_f  # 旋转部分
+        F_x[0:3, 9:12] = Eye3d.clone() * dt
+        F_x[3:6, 6:9] = Eye3d.clone() * dt
+
+        # 设置噪声协方差 cov_w
+        cov_w[9:12, 9:12].fill_diagonal_(self.cov_gyr * (dt ** 2))
+        cov_w[6:9, 6:9].fill_diagonal_(self.cov_acc * (dt ** 2))
+
+        # 更新协方差
+        state_inout.cov = F_x @ state_inout.cov @ F_x.T + cov_w
+        # 更新状态
+        state_inout.rot_end = state_inout.rot_end @ Exp_f
+        state_inout.pos_end = state_inout.pos_end + state_inout.vel_end * dt
+        return state_inout, pcl_out
+    
+    def Process(self, meas: MeasureGroup, stat: StatesGroup, cur_pcl_un_: List[PointCloudXYZINormal]):
+        cov_acc = Eye3d * self.cov_acc_scale
+        cov_gyr = Eye3d * self.cov_gyr_scale
+        return self.only_propag(meas=meas, state_inout=stat, pcl_out=cur_pcl_un_)
 
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
 # FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
@@ -211,7 +263,7 @@ class StatesGroup:
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
 # Created by zty 2025/04/26
 
-def Exp(v1: float, v2: float, v3: float) -> torch.Tensor:
+def Exp(*args) -> torch.Tensor:
     """
     计算 3x3 旋转矩阵，使用Roderigous Tranformation。
 
@@ -221,79 +273,82 @@ def Exp(v1: float, v2: float, v3: float) -> torch.Tensor:
     Returns:
         torch.Tensor: 3x3 旋转矩阵。
     """
-    # 将输入转换为张量
-    v = torch.tensor([v1, v2, v3], dtype=DOUBLE, device=DEVICE).reshape(3, 1)
-    
-    # 计算范数
-    norm = torch.norm(v)
-    
-    # 初始化单位矩阵
     Eye3 = torch.eye(3, dtype=DOUBLE, device=DEVICE)
+    if len(args) == 1:
+        # Exp(ang: Tensor)
+        ang = args[0].reshape(-1, 1)
+        norm = torch.norm(ang)
+        if norm > 1e-7:
+            r_ang = ang / norm
+            K = torch.tensor([
+                [0, -r_ang[2, 0], r_ang[1, 0]],
+                [r_ang[2, 0], 0, -r_ang[0, 0]],
+                [-r_ang[1, 0], r_ang[0, 0], 0]
+            ], dtype=DOUBLE, device=DEVICE)
+            return Eye3 + torch.sin(norm) * K + (1.0 - torch.cos(norm)) * K @ K
+        else:
+            return Eye3
     
-    if norm > 0.00001:
-        # 归一化向量
-        r_ang = v / norm
-        
-        # 构造反对称矩阵 K
-        K = torch.tensor([
-            [0, -r_ang[2, 0], r_ang[1, 0]],
-            [r_ang[2, 0], 0, -r_ang[0, 0]],
-            [-r_ang[1, 0], r_ang[0, 0], 0]
-        ], dtype=DOUBLE, device=DEVICE)
-        
-        # 罗德里格斯公式
-        return Eye3 + torch.sin(norm) * K + (1.0 - torch.cos(norm)) * K @ K
+    elif len(args) == 2:
+        # Exp(ang_vel: Tensor, dt: float)
+        ang_vel, dt = args
+        ang_vel = ang_vel.reshape(-1, 1)
+        norm = torch.norm(ang_vel)
+        if norm > 1e-7:
+            r_ang = ang_vel / norm
+            K = torch.tensor([
+                [0, -r_ang[2, 0], r_ang[1, 0]],
+                [r_ang[2, 0], 0, -r_ang[0, 0]],
+                [-r_ang[1, 0], r_ang[0, 0], 0]
+            ], dtype=DOUBLE, device=DEVICE)
+            r_angle = norm * dt
+            return Eye3 + torch.sin(r_angle) * K + (1.0 - torch.cos(r_angle)) * K @ K
+        else:
+            return Eye3
+
+    elif len(args) == 3:
+        # Exp(v1, v2, v3)
+        v1, v2, v3 = args
+        v = torch.tensor([v1, v2, v3], dtype=DOUBLE, device=DEVICE).reshape(3, 1)
+        norm = torch.norm(v)
+        if norm > 1e-5:
+            r_ang = v / norm
+            K = torch.tensor([
+                [0, -r_ang[2, 0], r_ang[1, 0]],
+                [r_ang[2, 0], 0, -r_ang[0, 0]],
+                [-r_ang[1, 0], r_ang[0, 0], 0]
+            ], dtype=DOUBLE, device=DEVICE)
+            return Eye3 + torch.sin(norm) * K + (1.0 - torch.cos(norm)) * K @ K
+        else:
+            return Eye3
     else:
-        return Eye3
-    
-def only_propag(meas: MeasureGroup, state_inout: StatesGroup, pcl_out: PointCloudXYZI) -> None:
-        pcl_beg_time = meas.lidar_beg_time
+        raise ValueError(f"Unsupported number of arguments: {len(args)}")
 
-        # 设置输出点云
-        pcl_out.points = meas.lidar.points
-        pcl_out.num_points = meas.lidar.num_points
+def Log(R: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the axis-angle vector of a 3x3 rotation matrix (Log Map).
 
-        # 计算点云结束时间
-        if len(pcl_out) > 0:
-            pcl_end_time = pcl_beg_time + pcl_out.points[-1, 3] / 1000.0
-        else:
-            pcl_end_time = pcl_beg_time
+    Args:
+        R (torch.Tensor): 3x3 Rotation Matrix。
 
-        # 计算时间差 dt
-        if b_first_frame_:
-            dt = 0.1
-            b_first_frame_ = False
-            time_last_scan_ = pcl_beg_time
-        else:
-            dt = pcl_beg_time - time_last_scan_
-            time_last_scan_ = pcl_beg_time
+    Returns:
+        torch.Tensor: 3x1 Axis angle vector.
+    """
+    # 计算迹
+    trace_R = R.trace()
 
-        # 协方差传播
-        F_x = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
-        cov_w = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+    # 计算旋转角度 theta
+    theta = 0.0 if trace_R > 3.0 - 1e-6 else torch.acos(0.5 * (trace_R - 1))
 
-        # 计算旋转增量
-        v1, v2, v3 = state_inout.bias_g[0, 0], state_inout.bias_g[1, 0], state_inout.bias_g[2, 0]
-        Exp_f = Exp(v1, v2, v3, dt, device=DEVICE)  # 使用新的 Exp 函数
+    # 计算反对称矩阵的向量表示 K
+    K = torch.tensor([
+        R[2, 1] - R[1, 2],
+        R[0, 2] - R[2, 0],
+        R[1, 0] - R[0, 1]
+    ], dtype=DOUBLE, device=DEVICE).reshape(3, 1)
 
-        # 设置 F_x 的子块
-        F_x[0:3, 0:3] = Exp_f  # 旋转部分
-        F_x[0:3, 9:12] = torch.eye(3, dtype=DOUBLE, device=DEVICE) * dt
-        F_x[3:6, 6:9] = torch.eye(3, dtype=DOUBLE, device=DEVICE) * dt
-
-        # 设置噪声协方差 cov_w
-        cov_w[9:12, 9:12] = torch.eye(3, dtype=DOUBLE, device=DEVICE) * cov_gyr * (dt ** 2)
-        cov_w[6:9, 6:9] = torch.eye(3, dtype=DOUBLE, device=DEVICE) * cov_acc * (dt ** 2)
-
-        # 更新协方差
-        state_inout.cov = F_x @ state_inout.cov @ F_x.transpose(0, 1) + cov_w
-
-        # 更新状态
-        state_inout.rot_end = state_inout.rot_end @ Exp_f
-        state_inout.pos_end = state_inout.pos_end + state_inout.vel_end * dt
-        return state_inout, pcl_out
-        
-def Process(meas: MeasureGroup, stat: StatesGroup, cur_pcl_un_: List[PointCloudXYZINormal]):
-    cov_acc = Eye3d * cov_acc_scale
-    cov_gyr = Eye3d * cov_gyr_scale
-    return only_propag(meas=meas, state_inout=stat, pcl_out=cur_pcl_un_)
+    # 根据 theta 大小选择返回结果
+    if torch.abs(theta) < 0.001:
+        return 0.5 * K
+    else:
+        return (0.5 * theta / torch.sin(theta)) * K

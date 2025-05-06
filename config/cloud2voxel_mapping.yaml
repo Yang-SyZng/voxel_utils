@@ -3,7 +3,7 @@ common:
     imu_topic:  "/livox/imu"
 
 pointcloud:
-  file_path: "/home/y/projections/catkin_ws_cloud2VoxelMap/points3D.ply"  # 点云文件路径
+  file_path: "points3D.ply"  # 点云文件路径
   file_format: "ply"  # 点云文件格式，可以选择 pcd 或 ply
   
 preprocess:
