@@ -3,15 +3,15 @@ from typing import List
 from utils import DOUBLE, DEVICE, FLOAT64
 from lib import DIM_STATE, INIT_COV
 
-#   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\
-#  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|
-#  CC |           LL |          AA /    AA |   SS /          SS /
-#  CC |           LL |          AAAAAAAAAA |     SSSSSSS \     SSSSSSS \
-#  CC |           LL |          AA  ____AA |           SS \           SS \
-#  CC |           LL |          AA |    AA |           SS |           SS |
-#   CCCCCCCCC\    LLLLLLLLLL\   AA |    AA |    SSSSSSSS /     SSSSSSSS /
-#   \_________|   \_________|   \__|    \__|    \_______/      \_______/
-# Created by zty 2025/04/26
+#  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
+#   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
+#    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
+#     VV \  VV /     AAAAAAAAAA |  LL |         UU |    UU |  EEEEEEEEEE\    SSSSSSS \
+#      VV \VV /      AA  ____AA |  LL |         UU |    UU |  EE  ______|           SS \
+#       VVVV /       AA |    AA |  LL |         UU |    UU |  EE |                  SS |
+#        VV /        AA |    AA |  LLLLLLLLLL\   UUUUUUUU /   EEEEEEEEEEE\   SSSSSSSS /
+#        \_/         \__|    \__|  \_________|   \_______/    \__________|   \_______/
+# Created by zty 2025/05/03
 
 # Vector3d shape(3, 1)
 # Matrix3d shape(3, 3)
@@ -19,6 +19,19 @@ cov_acc = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
 cov_gyr = torch.tensor([[0.1], [0.1], [0.1]], dtype=DOUBLE, device=DEVICE)
 Eye3d = torch.eye(3, dtype=DOUBLE, device=DEVICE)
 Eye3f = torch.eye(3, dtype=FLOAT64, device=DEVICE)
+cov_acc_scale = torch.tensor([[1], [1], [1]], dtype=DOUBLE, device=DEVICE)
+cov_gyr_scale = torch.tensor([[1], [1], [1]], dtype=DOUBLE, device=DEVICE)
+
+
+#   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\     EEEEEEEEEEE\  SSSSSSSS\
+#  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|    EE  ______|  SS  ______|
+#  CC |           LL |          AA /    AA |   SS /          SS /           EE |         SS /
+#  CC |           LL |          AAAAAAAAAA |     SSSSSSS \     SSSSSSS \    EEEEEEEEEE\    SSSSSSS \
+#  CC |           LL |          AA  ____AA |           SS \           SS \  EE  ______|           SS \
+#  CC |           LL |          AA |    AA |           SS |           SS |  EE |                  SS |
+#   CCCCCCCCC\    LLLLLLLLLL\   AA |    AA |    SSSSSSSS /     SSSSSSSS /   EEEEEEEEEEE\   SSSSSSSS /
+#   \_________|   \_________|   \__|    \__|    \_______/      \_______/    \__________|   \_______/
+# Created by zty 2025/04/26
 
 # PointCloudXYZI = List[PointCloudXYZINormal]
 
@@ -194,7 +207,7 @@ class StatesGroup:
 # FFFFF\       UU |    UU |   NN \N\ NN |   CC |               TT |        II |     OO |      OO |   NN NN\  NN |    SSSSSSS \
 # FF  __|      UU |    UU |   NN |\NNNN |   CC |               TT |        II |     OO |      OO |   NN | NN\NN |           SS \
 # FF |         UU |    UU |   NN | \NNN |   CC |               TT |        II |      OO \    OO /    NN |  NNNN |           SS |
-# FF |         \UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
+# FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
 # Created by zty 2025/04/26
 
@@ -278,6 +291,9 @@ def only_propag(meas: MeasureGroup, state_inout: StatesGroup, pcl_out: PointClou
         # 更新状态
         state_inout.rot_end = state_inout.rot_end @ Exp_f
         state_inout.pos_end = state_inout.pos_end + state_inout.vel_end * dt
+        return state_inout, pcl_out
         
 def Process(meas: MeasureGroup, stat: StatesGroup, cur_pcl_un_: List[PointCloudXYZINormal]):
-    cov_acc = Eye3d 
+    cov_acc = Eye3d * cov_acc_scale
+    cov_gyr = Eye3d * cov_gyr_scale
+    return only_propag(meas=meas, state_inout=stat, pcl_out=cur_pcl_un_)
