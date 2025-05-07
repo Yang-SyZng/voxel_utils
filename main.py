@@ -209,11 +209,16 @@ def main(*args: Namespace):
     match_time = 0
     solve_time = 0
     svd_time = 0
+<<<<<<< HEAD
     
     state, feats_undistort = p_imu.Process(Measures, state)
     print(state.cov)    
     state_propagat = state
     
+=======
+    state, feats_undistort = p_imu.Process(Measures, state)
+    state_propagat = state
+>>>>>>> 90f205638364d7e109917592986647eb1ed74483
     if is_first_frame:
         first_lidar_time = Measures.lidar_beg_time
         is_first_frame = False
