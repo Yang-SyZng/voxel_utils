@@ -11,7 +11,7 @@ from utils import DOUBLE, DEVICE
 import utils.voxel_map_util as vx
 import open3d as o3d
 import numpy as np
-torch.set_printoptions(sci_mode=False , linewidth=1000)
+torch.set_printoptions(precision=5, linewidth=1000)
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
@@ -190,12 +190,13 @@ def main(*args: Namespace):
                 raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
             # 构造 intensity 列
             intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-
+            curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
             # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
             combined_tensor = torch.cat([
                 points_tensor,  # (N, 3) -> [x, y, z]
                 intensity,      # (N, 1) -> [intensity]
-                normals_tensor  # (N, 3) -> [nx, ny, nz]
+                normals_tensor, # (N, 3) -> [nx, ny, nz]
+                curvature       # (N, 1) -> [curvature]
             ], dim=1)  # 结果形状 (N, 7)
             # 一次性添加到 meas.lidar
             meas.lidar.add_points(combined_tensor)
@@ -209,9 +210,13 @@ def main(*args: Namespace):
     match_time = 0
     solve_time = 0
     svd_time = 0
-    
+    # for row in state.cov:
+    #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
     state, feats_undistort = p_imu.Process(Measures, state)
-    print(state.cov)    
+    # print(feats_undistort.points[:5])
+    # for row in state.cov:
+    #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
+ 
     state_propagat = state
     
     if is_first_frame:
@@ -225,6 +230,7 @@ def main(*args: Namespace):
         # 将点云转换到世界坐标系
         
         world_lidar = vx.transformLidar(state, feats_undistort)  # 列表形式
+        
         #
         # "for" change to "Batch" start
         #
@@ -235,9 +241,9 @@ def main(*args: Namespace):
         points_world = world_lidar.points[:, :3] # 形状 (N, 3)
         # 如果 z=0，设置为 0.001
         points_this[:, 2] = torch.where(points_this[:, 2] == 0, 0.001, points_this[:, 2])
-        
         # 计算协方差
         covs = vx.calcBodyCov(points_this, ranging_cov, angle_cov)  # 形状 (N, 3, 3)
+        
         # 协方差传播到世界坐标系
         points_this = points_this + Lidar_offset_to_IMU.T  # 形状 (N, 3)
         
@@ -264,6 +270,8 @@ def main(*args: Namespace):
                             (-point_crossmat).transpose(1, 2))  # (N, 3, 3)
         term3 = cov_pos.unsqueeze(0).expand(N, -1, -1)  # (N, 3, 3)
         covs = term1 + term2 + term3  # 形状 (N, 3, 3)
+        
+        
         # 创建 pv_list
         pv_list = pointWithCov()
         pv_list.add_points(points_world, covs)
@@ -276,6 +284,7 @@ def main(*args: Namespace):
         #
         # print("max_layer:", max_layer)
         # print(pv_list.points.shape)
+        # print(max_voxel_size, max_layer, max_points_size, min_eigen_value)
         voxel_map = vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
                                     max_points_size, max_points_size, min_eigen_value,
                                     voxel_map)

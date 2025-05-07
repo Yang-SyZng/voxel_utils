@@ -1,7 +1,7 @@
 import torch
 from typing import List, Optional, Dict
 from lib.common_lib import StatesGroup, PointCloudXYZINormal, PointCloudXYZI, PointCloudXYZ
-from utils import DOUBLE, HASH_P, MAX_N, DEVICE
+from utils import DOUBLE, DEVICE
 
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
@@ -110,7 +110,7 @@ class VOXEL_LOC:
         return self.x == other.x and self.y == other.y and self.z == other.z
 
     def __hash__(self):
-        return ((((self.z) * HASH_P) % MAX_N + (self.y)) * HASH_P) % MAX_N + (self.x)
+        return hash((self.x, self.y, self.z))
     
 class OctoTree:
     def __init__(self, 
@@ -299,28 +299,23 @@ def buildVoxelMap(input_points: pointWithCov,
     for i in range(N_unique):
         voxel_idx = loc_xyz_unique[i]  # (3,)
         position = VOXEL_LOC(int(voxel_idx[0]), int(voxel_idx[1]), int(voxel_idx[2]))
-
+        
         # 找到属于该体素的所有点
         mask = (inverse_indices == i)
         points_in_voxel = input_points.points[mask]
         covs_in_voxel = input_points.covs[mask]
-        if position in feat_map:
-            # 更新已有体素
-            feat_map[position].temp_points_.add_points(points_in_voxel, covs_in_voxel)
-            feat_map[position].new_points_num_ += len(points_in_voxel)
-        else:
-            # 创建新体素
-            octo_tree = OctoTree(max_layer, 0, layer_point_size, max_points_size,
-                                 max_cov_points_size, planer_threshold)
-            feat_map[position] = octo_tree
-            feat_map[position].quater_length_ = voxel_size / 4
-            feat_map[position].voxel_center_[0] = (0.5 + position.x) * voxel_size
-            feat_map[position].voxel_center_[1] = (0.5 + position.y) * voxel_size
-            feat_map[position].voxel_center_[2] = (0.5 + position.z) * voxel_size
-            feat_map[position].temp_points_.add_points(points_in_voxel, covs_in_voxel)
-            feat_map[position].new_points_num_ += len(points_in_voxel)
-            feat_map[position].layer_point_size_ = layer_point_size
-
+        
+        # 创建体素
+        octo_tree = OctoTree(max_layer, 0, layer_point_size, max_points_size,
+                            max_cov_points_size, planer_threshold)
+        feat_map[position] = octo_tree
+        feat_map[position].quater_length_ = voxel_size / 4
+        feat_map[position].voxel_center_[0] = (0.5 + position.x) * voxel_size
+        feat_map[position].voxel_center_[1] = (0.5 + position.y) * voxel_size
+        feat_map[position].voxel_center_[2] = (0.5 + position.z) * voxel_size
+        feat_map[position].temp_points_.add_points(points_in_voxel, covs_in_voxel)
+        feat_map[position].new_points_num_ += len(points_in_voxel)
+        feat_map[position].layer_point_size_ = layer_point_size
     # 初始化所有 OctoTree
     for _, value in feat_map.items():
         value.init_octo_tree()

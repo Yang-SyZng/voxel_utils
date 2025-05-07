@@ -76,23 +76,23 @@ class PointCloudXYZI:
         self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
 
 
-# PointCloudXYZINormal [x, y, z, intensity, nx, ny, nz]
+# PointCloudXYZINormal [x, y, z, intensity, nx, ny, nz, curvature]
 class PointCloudXYZINormal:
     def __init__(self, points=None): # , curvature=None
         if points is None:
-            self.points = torch.zeros((0, 7), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity, nx, ny, nz]
+            self.points = torch.zeros((0, 8), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity, nx, ny, nz, curvature]
         else:
             if not isinstance(points, torch.Tensor):
                 raise TypeError("points must be a torch.Tensor")
-            if points.shape[1] != 7:
-                raise ValueError("points must have shape (N, 7) for [x, y, z, intensity, nx, ny, nz]")
+            if points.shape[1] != 8:
+                raise ValueError("points must have shape (N, 8) for [x, y, z, intensity, nx, ny, nz, curvature]")
             self.points = points.to(dtype=DOUBLE, device=DEVICE)
 
     def add_points(self, points):
         if not isinstance(points, torch.Tensor):
             raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 7:
-            raise ValueError("points must have shape (N, 7) for [x, y, z, intensity, nx, ny, nz]")
+        if points.shape[1] != 8:
+            raise ValueError("points must have shape (N, 8) for [x, y, z, intensity, nx, ny, nz, curvature]")
         self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
     
 class MeasureGroup:
@@ -383,7 +383,7 @@ class ImuProcess:
         else:
             print("No IMU, use constant velocity model")
             self.cov_acc = self.cov_acc_scale.clone()
-            self.cov_gyr = self.cov_acc_scale.clone()
+            self.cov_gyr = self.cov_gyr_scale.clone()
             return self.only_propag(meas=meas, state_inout=stat)
 
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
