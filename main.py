@@ -4,12 +4,13 @@ import yaml
 import torch
 from typing import Final, List, Dict
 import lib.common_lib as cl
-from lib.common_lib import StatesGroup, PointXYZI, ImuProcess # PointXYZINormal
+from lib.common_lib import StatesGroup, PointXYZI, ImuProcess, PointCloudXYZINormal # PointXYZINormal
 from lib import DIM_STATE
 from utils.voxel_map_util import pointWithCov, VOXEL_LOC, OctoTree
 from utils import DOUBLE, DEVICE
 import utils.voxel_map_util as vx
 import open3d as o3d
+import numpy as np
 INIT_TIME: Final = 0.0
 CALIB_ANGLE_COV: Final = 0.01
 
@@ -18,6 +19,7 @@ feats_undistort: List[PointXYZI] = []
 feats_down_body: List[PointXYZI] = []
 laserCloudOri: List[PointXYZI] = []
 laserCloudNoeffect: List[PointXYZI] = []
+lidar_buffer: List[PointCloudXYZINormal] = []
 
 def read_yaml(yaml_path: str):
     """读取 YAML 配置文件，并转成 argparse.Namespace"""
@@ -39,7 +41,7 @@ def read_yaml(yaml_path: str):
 
     return Namespace(**flat_cfg)
 
-def readPointCloud(file_path: str, file_format: str,):
+def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
     if file_format not in ["pcd", "ply"]:
         raise ValueError(f"Unsupported file format: {file_format}")
 
@@ -56,6 +58,8 @@ def readPointCloud(file_path: str, file_format: str,):
 def main(*args: Namespace):
     if isinstance(args, tuple):
         args = args[0]
+    
+    scanIdx = 0
     # cummon params
     lid_topic = args.lid_topic
     imu_topic = args.imu_topic
@@ -102,6 +106,9 @@ def main(*args: Namespace):
     file_format = args.file_format
     
     pcd = readPointCloud(file_path, file_format)
+    points_tensor = torch.tensor(np.asarray(pcd.points), dtype=DOUBLE, device=DEVICE)
+    normals_tensor = torch.tensor(np.asarray(pcd.normals), dtype=DOUBLE, device=DEVICE)
+    rgb_tensor = torch.tensor(np.asarray(pcd.colors), dtype=DOUBLE, device=DEVICE)
     
     # solution: 18x1 列向量
     solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
@@ -149,6 +156,15 @@ def main(*args: Namespace):
     init_map: bool = False
     voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
     state = state_propagat
+    last_rot = torch.eye(3, dtype=DOUBLE, device=DEVICE)
+    #
+    # while
+    #
+    match_time = 0
+    solve_time = 0
+    svd_time = 0
+    
+    # state, feats_undistort = p_imu.Process(Measures, state, feats_undistort)
     #
     # if (flg_EKF_inited && !init_map) start
     #
