@@ -12,10 +12,13 @@ from lib import DIM_STATE, INIT_COV
 #        VV /        AA |    AA |  LLLLLLLLLL\   UUUUUUUU /   EEEEEEEEEEE\   SSSSSSSS /
 #        \_/         \__|    \__|  \_________|   \_______/    \__________|   \_______/
 # Created by zty 2025/05/03
+MAX_INI_COUNT = 200
 Eye3d = torch.eye(3, dtype=DOUBLE, device=DEVICE)
 Eye3f = torch.eye(3, dtype=FLOAT64, device=DEVICE)
 Zero3d = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 Zero3f = torch.zeros((3, 1), dtype=FLOAT64, device=DEVICE)
+Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+G_m_s2 = 9.81  # 重力加速度
 Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 # Vector3d shape(3, 1)
 # Matrix3d shape(3, 3)
@@ -31,31 +34,72 @@ Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 #   \_________|   \_________|   \__|    \__|    \_______/      \_______/    \__________|   \_______/
 # Created by zty 2025/04/26
 
-# PointCloudXYZI = List[PointCloudXYZINormal]
+# PointCloudXYZI = PointCloudXYZINormal
+# PointXYZI = PointCloudXYZI
+# PointCloudXYZI [x, y, z, intensity]
 
-class PointXYZI:
-    def __init__(self, x=None, y=None, z=None, intensity=None):
-        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
-        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
-        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
-        self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
+class PointCloudXYZ:
+    def __init__(self, points=None): # , curvature=None
+        if points is None:
+            self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity]
+        else:
+            if not isinstance(points, torch.Tensor):
+                raise TypeError("points must be a torch.Tensor")
+            if points.shape[1] != 3:
+                raise ValueError("points must have shape (N, 3) for [x, y, z]")
+            self.points = points.to(dtype=DOUBLE, device=DEVICE)
 
+    def add_points(self, points):
+        if not isinstance(points, torch.Tensor):
+            raise TypeError("points must be a torch.Tensor")
+        if points.shape[1] != 3:
+            raise ValueError("points must have shape (N, 3) for [x, y, z]")
+        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
+
+# PointCloudXYZI [x, y, z, intensity]
+class PointCloudXYZI:
+    def __init__(self, points=None): # , curvature=None
+        if points is None:
+            self.points = torch.zeros((0, 4), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity]
+        else:
+            if not isinstance(points, torch.Tensor):
+                raise TypeError("points must be a torch.Tensor")
+            if points.shape[1] != 4:
+                raise ValueError("points must have shape (N, 4) for [x, y, z, intensity]")
+            self.points = points.to(dtype=DOUBLE, device=DEVICE)
+
+    def add_points(self, points):
+        if not isinstance(points, torch.Tensor):
+            raise TypeError("points must be a torch.Tensor")
+        if points.shape[1] != 4:
+            raise ValueError("points must have shape (N, 4) for [x, y, z, intensity]")
+        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
+
+
+# PointCloudXYZINormal [x, y, z, intensity, nx, ny, nz]
 class PointCloudXYZINormal:
-    def __init__(self, x=None, y=None, z=None, intensity=None, nx=None, ny=None, nz=None): # , curvature=None
-        self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
-        self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
-        self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
-        self.intensity = torch.tensor(intensity, dtype=DOUBLE, device=DEVICE)
-        self.nx = torch.tensor(nx, dtype=DOUBLE, device=DEVICE)
-        self.ny = torch.tensor(ny, dtype=DOUBLE, device=DEVICE)
-        self.nz = torch.tensor(nz, dtype=DOUBLE, device=DEVICE)
-        # self.curvature = torch.tensor(curvature, dtype=DOUBLE, device=DEVICE)
+    def __init__(self, points=None): # , curvature=None
+        if points is None:
+            self.points = torch.zeros((0, 7), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity, nx, ny, nz]
+        else:
+            if not isinstance(points, torch.Tensor):
+                raise TypeError("points must be a torch.Tensor")
+            if points.shape[1] != 7:
+                raise ValueError("points must have shape (N, 7) for [x, y, z, intensity, nx, ny, nz]")
+            self.points = points.to(dtype=DOUBLE, device=DEVICE)
+
+    def add_points(self, points):
+        if not isinstance(points, torch.Tensor):
+            raise TypeError("points must be a torch.Tensor")
+        if points.shape[1] != 7:
+            raise ValueError("points must have shape (N, 7) for [x, y, z, intensity, nx, ny, nz]")
+        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
     
 class MeasureGroup:
     def __init__(self):
         self.lidar_beg_time = 0.0
-        self.lidar: List[PointCloudXYZINormal] = None
-        self.imu = None
+        self.lidar = PointCloudXYZINormal()
+        self.imu = []
         
 class StatesGroup:
     def __init__(self):
@@ -137,8 +181,8 @@ class StatesGroup:
         Reset pose-related states to zero.
         """
         self.rot_end = torch.eye(3, dtype=DOUBLE, device=DEVICE)
-        self.pos_end = torch.zeros(3, 1, dtype=DOUBLE, device=DEVICE)
-        self.vel_end = torch.zeros(3, 1, dtype=DOUBLE, device=DEVICE)
+        self.pos_end = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        self.vel_end = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 
 class ImuProcess:
     def __init__(self):
@@ -216,8 +260,6 @@ class ImuProcess:
 
             N += 1
 
-        # 规范化重力
-        G_m_s2 = 9.81  # 重力加速度
         state_inout.gravity = -self.mean_acc / torch.norm(self.mean_acc) * G_m_s2
 
         # 设置初始旋转和偏差
@@ -270,22 +312,22 @@ class ImuProcess:
     def set_acc_bias_cov(self, b_a: torch.Tensor):
         self.cov_bias_acc = b_a
 
-    def only_propag(self, meas: MeasureGroup, state_inout: StatesGroup, pcl_out: List[PointCloudXYZINormal]):
+    def only_propag(self, meas: MeasureGroup, state_inout: StatesGroup):
 
         pcl_beg_time = meas.lidar_beg_time
 
         # 设置输出点云
         pcl_out = meas.lidar
-
+        
         # if len(pcl_out) > 0:
         #     pcl_end_time = pcl_beg_time + pcl_out.points[-1, 3] / 1000.0
         # else:
         #     pcl_end_time = pcl_beg_time
 
         # 计算时间差 dt
-        if b_first_frame_:
+        if self.b_first_frame_:
             dt = 0.1
-            b_first_frame_ = False
+            self.b_first_frame_ = False
             time_last_scan_ = pcl_beg_time
         else:
             dt = pcl_beg_time - time_last_scan_
@@ -302,8 +344,12 @@ class ImuProcess:
         F_x[3:6, 6:9] = Eye3d.clone() * dt
 
         # 设置噪声协方差 cov_w
-        cov_w[9:12, 9:12].fill_diagonal_(self.cov_gyr * (dt ** 2))
-        cov_w[6:9, 6:9].fill_diagonal_(self.cov_acc * (dt ** 2))
+        for i in range(3):
+            cov_w[9 + i, 9 + i] = (self.cov_gyr[i] * (dt ** 2)).item()
+        for i in range(3):
+            cov_w[6 + i, 6 + i] = (self.cov_acc[i] * (dt ** 2)).item()
+        # cov_w[9:12, 9:12].fill_diagonal_((self.cov_gyr * (dt ** 2)).item())
+        # cov_w[6:9, 6:9].fill_diagonal_((self.cov_acc * (dt ** 2)).item())
 
         # 更新协方差
         state_inout.cov = F_x @ state_inout.cov @ F_x.T + cov_w
@@ -312,10 +358,33 @@ class ImuProcess:
         state_inout.pos_end = state_inout.pos_end + state_inout.vel_end * dt
         return state_inout, pcl_out
     
-    def Process(self, meas: MeasureGroup, stat: StatesGroup, cur_pcl_un_: List[PointCloudXYZINormal]):
-        cov_acc = Eye3d * self.cov_acc_scale
-        cov_gyr = Eye3d * self.cov_gyr_scale
-        return self.only_propag(meas=meas, state_inout=stat, pcl_out=cur_pcl_un_)
+    def Process(self, meas: MeasureGroup, stat: StatesGroup):
+        # if (meas.imu.empty() && imu_en) {
+        #     return;
+        # }
+        # ROS_ASSERT(meas.lidar != nullptr);
+
+        if self.imu_need_init_ and self.imu_en:
+            stat, self.init_iter_num = self.IMU_init(meas, stat, self.init_iter_num)
+            self.imu_need_init_ = True
+            # self.last_imu_ = meas.imu
+
+            if self.init_iter_num > MAX_INI_COUNT:
+                self.cov_acc *= (G_m_s2 / self.mean_acc.norm()) ** 2
+                self.imu_need_init_ = False
+                self.cov_acc = Eye3d.clone() * self.cov_acc_scale
+                self.cov_gyr = Eye3d.clone() * self.cov_gyr_scale
+
+            return
+        if self.imu_en:
+            print("Use IMU")
+            # UndistortPcl(meas, stat, *cur_pcl_un_);
+            # last_imu_ = meas.imu.back();
+        else:
+            print("No IMU, use constant velocity model")
+            self.cov_acc = self.cov_acc_scale.clone()
+            self.cov_gyr = self.cov_acc_scale.clone()
+            return self.only_propag(meas=meas, state_inout=stat)
 
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
 # FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
