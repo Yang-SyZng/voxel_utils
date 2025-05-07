@@ -4,22 +4,44 @@ import yaml
 import torch
 from typing import Final, List, Dict
 import lib.common_lib as cl
-from lib.common_lib import StatesGroup, PointXYZI, ImuProcess, PointCloudXYZINormal # PointXYZINormal
+from lib.common_lib import StatesGroup, PointXYZI, ImuProcess, PointCloudXYZINormal, MeasureGroup # PointXYZINormal
 from lib import DIM_STATE
 from utils.voxel_map_util import pointWithCov, VOXEL_LOC, OctoTree
 from utils import DOUBLE, DEVICE
 import utils.voxel_map_util as vx
 import open3d as o3d
 import numpy as np
+
+#  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
+#   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
+#    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
+#     VV \  VV /     AAAAAAAAAA |  LL |         UU |    UU |  EEEEEEEEEE\    SSSSSSS \
+#      VV \VV /      AA  ____AA |  LL |         UU |    UU |  EE  ______|           SS \
+#       VVVV /       AA |    AA |  LL |         UU |    UU |  EE |                  SS |
+#        VV /        AA |    AA |  LLLLLLLLLL\   UUUUUUUU /   EEEEEEEEEEE\   SSSSSSSS /
+#        \_/         \__|    \__|  \_________|   \_______/    \__________|   \_______/
+# Created by zty 2025/05/07
+
 INIT_TIME: Final = 0.0
 CALIB_ANGLE_COV: Final = 0.01
-
 
 feats_undistort: List[PointXYZI] = []
 feats_down_body: List[PointXYZI] = []
 laserCloudOri: List[PointXYZI] = []
 laserCloudNoeffect: List[PointXYZI] = []
 lidar_buffer: List[PointCloudXYZINormal] = []
+
+# FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
+# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
+# FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
+# FFFFF\       UU |    UU |   NN \N\ NN |   CC |               TT |        II |     OO |      OO |   NN NN\  NN |    SSSSSSS \
+# FF  __|      UU |    UU |   NN |\NNNN |   CC |               TT |        II |     OO |      OO |   NN | NN\NN |           SS \
+# FF |         UU |    UU |   NN | \NNN |   CC |               TT |        II |      OO \    OO /    NN |  NNNN |           SS |
+# FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
+# \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
+# Created by zty 2025/05/07
+
+
 
 def read_yaml(yaml_path: str):
     """读取 YAML 配置文件，并转成 argparse.Namespace"""
@@ -157,13 +179,32 @@ def main(*args: Namespace):
     voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
     state = state_propagat
     last_rot = torch.eye(3, dtype=DOUBLE, device=DEVICE)
+
+    Measure = MeasureGroup()
+    def sync_packages(meas: MeasureGroup):
+        if imu_en == False:
+            for point_tensor, normal_tensor in points_tensor, normals_tensor:
+                x = point_tensor[0]
+                y = point_tensor[1]
+                z = point_tensor[2]
+                intensity = 0
+                nx = normal_tensor[0]
+                ny = normal_tensor[1]
+                nz = normal_tensor[2]
+                new = PointCloudXYZINormal(x=x, y=y, z=z, intensity=intensity, nx=nx, ny=ny, nz=nz)
+                meas.lidar.append(new)
+            
+            # meas.lidar_beg_time
+        return meas
+
+    Measure = sync_packages(Measure)
+    state, feats_undistort = p_imu.Process(Measure, state, feats_undistort)
     #
     # while
     #
     match_time = 0
     solve_time = 0
     svd_time = 0
-    
     # state, feats_undistort = p_imu.Process(Measures, state, feats_undistort)
     #
     # if (flg_EKF_inited && !init_map) start
@@ -232,11 +273,13 @@ def main(*args: Namespace):
     print("pv_list size:", len(pv_list))
     # print("max_layer:", max_layer)
 
-    vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, max_cov_points_size,
+    voxel_map = vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, max_cov_points_size,
                 max_points_size, max_points_size, min_eigen_value, voxel_map)
+    
     #
     # if (flg_EKF_inited && !init_map) end
     #
+    
 if __name__ == '__main__':
     args = read_yaml("config/cloud2voxel_mapping.yaml")
     print(args)

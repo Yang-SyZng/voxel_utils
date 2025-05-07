@@ -284,6 +284,8 @@ def buildVoxelMap(input_points: List[pointWithCov], voxel_size: float, max_layer
     for _, value in feat_map.items():
         value.init_octo_tree()
 
+    return feat_map
+
 def transform_lidar(state: StatesGroup, input_cloud):
     """
     Transform points from LiDAR frame to world frame.

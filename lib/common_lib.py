@@ -41,7 +41,7 @@ class PointXYZI:
         self.intensity = torch.tensor(intensity, dtype=torch.int, device=DEVICE)
 
 class PointCloudXYZINormal:
-    def __init__(self, x=None, y=None, z=None, intensity=None, nx=None, ny=None, nz=None, curvature=None):
+    def __init__(self, x=None, y=None, z=None, intensity=None, nx=None, ny=None, nz=None): # , curvature=None
         self.x = torch.tensor(x, dtype=DOUBLE, device=DEVICE)
         self.y = torch.tensor(y, dtype=DOUBLE, device=DEVICE)
         self.z = torch.tensor(z, dtype=DOUBLE, device=DEVICE)
@@ -49,7 +49,7 @@ class PointCloudXYZINormal:
         self.nx = torch.tensor(nx, dtype=DOUBLE, device=DEVICE)
         self.ny = torch.tensor(ny, dtype=DOUBLE, device=DEVICE)
         self.nz = torch.tensor(nz, dtype=DOUBLE, device=DEVICE)
-        self.curvature = torch.tensor(curvature, dtype=DOUBLE, device=DEVICE)
+        # self.curvature = torch.tensor(curvature, dtype=DOUBLE, device=DEVICE)
     
 class MeasureGroup:
     def __init__(self):
@@ -164,6 +164,70 @@ class ImuProcess:
         self.Lid_rot_to_IMU = Eye3d.clone()
         # self.last_imu_
 
+    def Reset(self):
+        self.mean_acc = torch.tensor([[0], [0], [-1.0]], dtype=DOUBLE, device=DEVICE)
+        self.mean_gyr = torch.tensor([[0], [0], [0]], dtype=DOUBLE, device=DEVICE)
+        self.angvel_last = Zero3d.clone()
+        self.imu_need_init_: bool = True
+        self.start_timestamp_: float = -1
+        self.init_iter_num: int = 1
+        # v_imu_.clear();
+        # IMUpose.clear();  
+        # last_imu_.reset(new sensor_msgs::Imu());
+        # cur_pcl_un_.reset(new PointCloudXYZI());
+    
+    def IMU_init(self, meas: MeasureGroup, state_inout: StatesGroup, N: int):
+        """
+        初始化 IMU 数据，包括重力和协方差。
+
+        Args:
+            meas (MeasureGroup): 测量数据。
+            state_inout (StatesGroup): 状态对象。
+            N (int): IMU 数据计数器。
+        """
+
+        cur_acc = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        cur_gyr = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+
+        if self.b_first_frame_:
+            self.Reset()
+            N = 1
+            self.b_first_frame_ = False
+            imu = meas.imu[0]  # 取第一个 IMU 数据
+            self.mean_acc = imu.linear_acceleration
+            self.mean_gyr = imu.angular_velocity
+            self.first_lidar_time = meas.lidar_beg_time
+
+        for imu in meas.imu:
+            cur_acc = imu.linear_acceleration
+            cur_gyr = imu.angular_velocity
+
+            # 更新均值
+            self.mean_acc += (cur_acc - self.mean_acc) / N
+            self.mean_gyr += (cur_gyr - self.mean_gyr) / N
+
+            # 更新协方差
+            diff_acc = cur_acc - self.mean_acc
+            diff_gyr = cur_gyr - self.mean_gyr
+            self.cov_acc = self.cov_acc * (N - 1.0) / N + diff_acc * diff_acc.t() * (N - 1.0) / (N * N)
+            self.cov_gyr = self.cov_gyr * (N - 1.0) / N + diff_gyr * diff_gyr.t() * (N - 1.0) / (N * N)
+
+            # print(f"acc norm: {torch.norm(cur_acc).item()} {torch.norm(self.mean_acc).item()}")
+
+            N += 1
+
+        # 规范化重力
+        G_m_s2 = 9.81  # 重力加速度
+        state_inout.gravity = -self.mean_acc / torch.norm(self.mean_acc) * G_m_s2
+
+        # 设置初始旋转和偏差
+        state_inout.rot_end = Eye3d.clone()
+        state_inout.bias_g = self.mean_gyr
+
+        self.last_imu_ = meas.imu[-1]
+
+        return state_inout, N
+    
     def set_extrinsic(self, T: torch.Tensor = None, 
                     transl: torch.Tensor = None, 
                     rot: torch.Tensor = None):
@@ -262,6 +326,9 @@ class ImuProcess:
 # FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
 # Created by zty 2025/04/26
+
+def sync_packages(meas: MeasureGroup):
+    pass
 
 def Exp(*args) -> torch.Tensor:
     """
