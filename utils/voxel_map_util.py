@@ -316,6 +316,16 @@ def buildVoxelMap(input_points: pointWithCov,
         feat_map[position].temp_points_.add_points(points_in_voxel, covs_in_voxel)
         feat_map[position].new_points_num_ += len(points_in_voxel)
         feat_map[position].layer_point_size_ = layer_point_size
+
+    # test
+    # position = VOXEL_LOC(-5, -4, -1)
+    # print(feat_map[position].quater_length_)
+    # print(feat_map[position].voxel_center_)
+    # print(feat_map[position].temp_points_.points[0])
+    # print(feat_map[position].temp_points_.covs[0])
+    # print(feat_map[position].new_points_num_)
+    # exit(-1)
+    
     # 初始化所有 OctoTree
     for _, value in feat_map.items():
         value.init_octo_tree()
