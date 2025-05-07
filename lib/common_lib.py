@@ -63,7 +63,7 @@ class StatesGroup:
         Initialize the state group.
         """
 
-        self.rot_end = torch.eye(3, dtype=DOUBLE, device=DEVICE)  # 形状 (3, 3)
+        self.rot_end = Eye3d.clone()  # 形状 (3, 3)
         self.pos_end = Zero3d.clone()
         self.vel_end = Zero3d.clone()
         self.bias_g = Zero3d.clone()

@@ -156,8 +156,8 @@ class OctoTree:
         
         if evals[evals_min] < self.planer_threshold_:
             for i in range(len(points)):
-                J = torch.zeros(6, 3, dtype=DOUBLE, device=DEVICE)
-                F = torch.zeros(3, 3, dtype=DOUBLE, device=DEVICE)
+                J = torch.zeros((6, 3), dtype=DOUBLE, device=DEVICE)
+                F = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
                 for m in range(3):
                     if m != evals_min:
                         F_m = ((points[i].point - plane.center).t() /
