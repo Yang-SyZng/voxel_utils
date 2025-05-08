@@ -11,7 +11,8 @@ from utils import DOUBLE, DEVICE
 import utils.voxel_map_util as vx
 import open3d as o3d
 import numpy as np
-torch.set_printoptions(precision=5, linewidth=1000)
+# torch.set_printoptions(precision=5, linewidth=1000)
+torch.set_printoptions(sci_mode=False, precision=12, linewidth=1000)
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
@@ -288,9 +289,6 @@ def main(*args: Namespace):
         voxel_map = vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
                                     max_points_size, max_points_size, min_eigen_value,
                                     voxel_map)
-        for _, Value in voxel_map.items(): 
-            # print(Value.plane_ptr_.covariance)
-            pass
 
         init_map = True
         

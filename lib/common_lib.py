@@ -348,8 +348,6 @@ class ImuProcess:
             cov_w[9 + i, 9 + i] = (self.cov_gyr[i] * (dt ** 2)).item()
         for i in range(3):
             cov_w[6 + i, 6 + i] = (self.cov_acc[i] * (dt ** 2)).item()
-        # cov_w[9:12, 9:12].fill_diagonal_((self.cov_gyr * (dt ** 2)).item())
-        # cov_w[6:9, 6:9].fill_diagonal_((self.cov_acc * (dt ** 2)).item())
 
         # 更新协方差
         state_inout.cov = F_x @ state_inout.cov @ F_x.T + cov_w

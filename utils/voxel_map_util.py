@@ -145,27 +145,29 @@ class OctoTree:
         
 
     
-    def init_plane(self, points: pointWithCov, plane: Plane):
+    def init_plane(self, points: pointWithCov):
         global plane_id
         
-        plane.plane_cov = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
-        plane.covariance = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
-        plane.center = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-        plane.normal = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-        plane.points_size = points.points.shape[0]
-        plane.radius = 0
+        self.plane_ptr_.plane_cov = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.covariance = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.center = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.normal = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.points_size = points.points.shape[0]
+        self.plane_ptr_.radius = 0
         
         points_tensor = points.points
         N = points.points.shape[0]
-        # 计算重心和协方差
-        plane.center = torch.mean(points_tensor, dim=0)
-        centered_points = points_tensor - plane.center  # (N, 3)
-        plane.covariance = torch.matmul(centered_points.T, centered_points) / N  # (3, 3)
+        self.plane_ptr_.center = torch.mean(points_tensor, dim=0)
+        centered_points = points_tensor - self.plane_ptr_.center  # (N, 3)
+        self.plane_ptr_.covariance = torch.matmul(centered_points.T, centered_points) / N  # (3, 3)
         
+        # print(self.plane_ptr_.center)
+        # print(self.plane_ptr_.covariance)
+        # exit(-1)
         # 特征值分解
-        eigenvalues, eigenvectors = torch.linalg.eigh(plane.covariance)
+        eigenvalues, eigenvectors = torch.linalg.eigh(self.plane_ptr_.covariance)
         evals = eigenvalues  # 特征值对角矩阵
-        evecs = eigenvectors # 特征向量
+        evecs = -eigenvectors # 特征向量
         
         # 找到最小、中间、最大特征值的索引
         evals_min = torch.argmin(evals)
@@ -200,56 +202,56 @@ class OctoTree:
             temp = torch.matmul(J, points.covs)
             # (N, 6, 3) @ (N, 3, 6) -> (N, 6, 6)
             plane_cov_per_point = torch.matmul(temp, J.transpose(1, 2))  # (N, 6, 6)
-            plane.plane_cov = torch.sum(plane_cov_per_point, dim=0)  # (6, 6)
+            self.plane_ptr_.plane_cov = torch.sum(plane_cov_per_point, dim=0)  # (6, 6)
 
-            plane.normal = evec_min
-            plane.y_normal = evec_mid
-            plane.x_normal = evec_max
-            plane.min_eigen_value = evals[evals_min].item()
-            plane.mid_eigen_value = evals[evals_mid].item()
-            plane.max_eigen_value = evals[evals_max].item()
-            plane.radius = torch.sqrt(evals[evals_max]).item()
-            plane.d = -(torch.dot(plane.normal.squeeze(), plane.center)).item()
-            plane.is_plane = True
+            self.plane_ptr_.normal = evec_min
+            self.plane_ptr_.y_normal = evec_mid
+            self.plane_ptr_.x_normal = evec_max
+            self.plane_ptr_.min_eigen_value = evals[evals_min].item()
+            self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
+            self.plane_ptr_.max_eigen_value = evals[evals_max].item()
+            self.plane_ptr_.radius = torch.sqrt(evals[evals_max]).item()
+            self.plane_ptr_.d = -(torch.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)).item()
+            self.plane_ptr_.is_plane = True
             
-            if plane.last_update_points_size == 0:
-                plane.last_update_points_size = plane.points_size
-                plane.is_update = True
-            elif plane.points_size - plane.last_update_points_size > 100:
-                plane.last_update_points_size = plane.points_size
-                plane.is_update = True
+            if self.plane_ptr_.last_update_points_size == 0:
+                self.plane_ptr_.last_update_points_size = self.plane_ptr_.points_size
+                self.plane_ptr_.is_update = True
+            elif self.plane_ptr_.points_size - self.plane_ptr_.last_update_points_size > 100:
+                self.plane_ptr_.last_update_points_size = self.plane_ptr_.points_size
+                self.plane_ptr_.is_update = True
 
-            if not plane.is_init:
-                plane.id = plane_id
+            if not self.plane_ptr_.is_init:
+                self.plane_ptr_.id = plane_id
                 plane_id += 1
-                plane.is_init = True
+                self.plane_ptr_.is_init = True
 
         else:
-            if not plane.is_init:
-                plane.id = plane_id
+            if not self.plane_ptr_.is_init:
+                self.plane_ptr_.id = plane_id
                 plane_id += 1
-                plane.is_init = True
+                self.plane_ptr_.is_init = True
             
-            if plane.last_update_points_size == 0:
-                plane.last_update_points_size = plane.points_size
-                plane.is_update = True
-            elif plane.points_size - plane.last_update_points_size > 100:
-                plane.last_update_points_size = plane.points_size
-                plane.is_update = True
+            if self.plane_ptr_.last_update_points_size == 0:
+                self.plane_ptr_.last_update_points_size = self.plane_ptr_.points_size
+                self.plane_ptr_.is_update = True
+            elif self.plane_ptr_.points_size - self.plane_ptr_.last_update_points_size > 100:
+                self.plane_ptr_.last_update_points_size = self.plane_ptr_.points_size
+                self.plane_ptr_.is_update = True
             
-            plane.is_plane = False
-            plane.normal = evec_min
-            plane.y_normal = evec_mid
-            plane.x_normal = evec_max
-            plane.min_eigen_value = evals[evals_min].item()
-            plane.mid_eigen_value = evals[evals_mid].item()
-            plane.max_eigen_value = evals[evals_max].item()
-            plane.radius = torch.sqrt(evals[evals_max]).item()
-            plane.d = -(torch.dot(plane.normal.squeeze(), plane.center)).item()
+            self.plane_ptr_.is_plane = False
+            self.plane_ptr_.normal = -1 * evec_min
+            self.plane_ptr_.y_normal = -evec_mid
+            self.plane_ptr_.x_normal = -evec_max
+            self.plane_ptr_.min_eigen_value = evals[evals_min].item()
+            self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
+            self.plane_ptr_.max_eigen_value = evals[evals_max].item()
+            self.plane_ptr_.radius = torch.sqrt(evals[evals_max]).item()
+            self.plane_ptr_.d = -(torch.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)).item()
         
     def init_octo_tree(self):
         if self.temp_points_.points.shape[0] > self.max_plane_update_threshold_:
-            self.init_plane(self.temp_points_, self.plane_ptr_)
+            self.init_plane(self.temp_points_)
             if self.plane_ptr_.is_plane:
                 self.octo_state_ = 0
                 if self.temp_points_.points.shape[0] > self.max_cov_points_size_:
@@ -329,7 +331,20 @@ def buildVoxelMap(input_points: pointWithCov,
     # 初始化所有 OctoTree
     for _, value in feat_map.items():
         value.init_octo_tree()
-
+    # position = VOXEL_LOC(-5, -4, -1)
+    # print(feat_map[position].plane_ptr_.center)
+    # print(feat_map[position].plane_ptr_.covariance)
+    # print(feat_map[position].plane_ptr_.normal)
+    # print(feat_map[position].plane_ptr_.x_normal)
+    # print(feat_map[position].plane_ptr_.y_normal)
+    # print(feat_map[position].plane_ptr_.plane_cov)
+    # print(feat_map[position].plane_ptr_.radius)
+    # print(feat_map[position].plane_ptr_.min_eigen_value)
+    # print(feat_map[position].plane_ptr_.mid_eigen_value)
+    # print(feat_map[position].plane_ptr_.max_eigen_value)
+    # print(feat_map[position].plane_ptr_.d)
+    # print(feat_map[position].plane_ptr_.points_size)
+    # exit(-1)
     return feat_map
 
 def transformLidar(state: StatesGroup, input_cloud: PointCloudXYZINormal):
