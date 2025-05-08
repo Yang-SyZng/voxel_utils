@@ -1,6 +1,6 @@
 import torch
 from typing import List, Optional, Dict
-from lib.common_lib import StatesGroup, PointCloudXYZINormal, PointCloudXYZI, PointCloudXYZ
+from lib.common_lib import StatesGroup, PointCloudXYZINormal, PointCloudXYZI, PointCloudXYZ, BasedPointCloud
 from utils import DOUBLE, DEVICE
 
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
@@ -33,16 +33,6 @@ class Ptpl:
         self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         self.d: float = 0.0
         self.layer: int = 0
-
-class pointWithCov:
-    def __init__(self, point: torch.Tensor, cov: torch.Tensor):
-        """
-        Args:
-            point (torch.Tensor): Shape (3, 1), point coordinates.
-            cov (torch.Tensor): Shape (3, 3), covariance matrix.
-        """
-        self.point = point
-        self.cov = cov
 
 # pointWithCov [x, y, z][covs]
 class pointWithCov:

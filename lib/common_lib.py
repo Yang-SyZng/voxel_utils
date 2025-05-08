@@ -37,64 +37,34 @@ Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 # PointCloudXYZI = PointCloudXYZINormal
 # PointXYZI = PointCloudXYZI
 # PointCloudXYZI [x, y, z, intensity]
-
-class PointCloudXYZ:
-    def __init__(self, points=None): # , curvature=None
+class BasedPointCloud:
+    def __init__(self, points=None, dim=3, description="[x, y, z]"):
+        self.dim = dim
+        self.description = description
         if points is None:
-            self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity]
+            self.points = torch.zeros((0, dim), dtype=DOUBLE, device=DEVICE)
         else:
             if not isinstance(points, torch.Tensor):
                 raise TypeError("points must be a torch.Tensor")
-            if points.shape[1] != 3:
-                raise ValueError("points must have shape (N, 3) for [x, y, z]")
+            if points.shape[1] != dim:
+                raise ValueError(f"points must have shape (N, {dim}) for {description}")
             self.points = points.to(dtype=DOUBLE, device=DEVICE)
 
     def add_points(self, points):
         if not isinstance(points, torch.Tensor):
             raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 3:
-            raise ValueError("points must have shape (N, 3) for [x, y, z]")
+        if points.shape[1] != self.dim:
+            raise ValueError(f"points must have shape (N, {self.dim}) for {self.description}")
         self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
-
-# PointCloudXYZI [x, y, z, intensity]
-class PointCloudXYZI:
-    def __init__(self, points=None): # , curvature=None
-        if points is None:
-            self.points = torch.zeros((0, 4), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity]
-        else:
-            if not isinstance(points, torch.Tensor):
-                raise TypeError("points must be a torch.Tensor")
-            if points.shape[1] != 4:
-                raise ValueError("points must have shape (N, 4) for [x, y, z, intensity]")
-            self.points = points.to(dtype=DOUBLE, device=DEVICE)
-
-    def add_points(self, points):
-        if not isinstance(points, torch.Tensor):
-            raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 4:
-            raise ValueError("points must have shape (N, 4) for [x, y, z, intensity]")
-        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
-
-
-# PointCloudXYZINormal [x, y, z, intensity, nx, ny, nz, curvature]
-class PointCloudXYZINormal:
-    def __init__(self, points=None): # , curvature=None
-        if points is None:
-            self.points = torch.zeros((0, 8), dtype=DOUBLE, device=DEVICE)  # 存储 [x, y, z, intensity, nx, ny, nz, curvature]
-        else:
-            if not isinstance(points, torch.Tensor):
-                raise TypeError("points must be a torch.Tensor")
-            if points.shape[1] != 8:
-                raise ValueError("points must have shape (N, 8) for [x, y, z, intensity, nx, ny, nz, curvature]")
-            self.points = points.to(dtype=DOUBLE, device=DEVICE)
-
-    def add_points(self, points):
-        if not isinstance(points, torch.Tensor):
-            raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 8:
-            raise ValueError("points must have shape (N, 8) for [x, y, z, intensity, nx, ny, nz, curvature]")
-        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
-    
+class PointCloudXYZ(BasedPointCloud):
+    def __init__(self, points=None):
+        super().__init__(points=points, dim=3, description="[x, y, z]")
+class PointCloudXYZI(BasedPointCloud):
+    def __init__(self, points=None):
+        super().__init__(points=points, dim=4, description="[x, y, z, intensity]")
+class PointCloudXYZINormal(BasedPointCloud):
+    def __init__(self, points=None):
+        super().__init__(points=points, dim=8, description="[x, y, z, intensity, nx, ny, nz, curvature]")
 class MeasureGroup:
     def __init__(self):
         self.lidar_beg_time = 0.0
