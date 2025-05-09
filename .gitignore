@@ -4,3 +4,8 @@
 lib/__pycache__/
 utils/__pycache__/
 test.py
+/output
+/SIBR_viewers
+__pycache__/main.cpython-38.pyc
+/path
+/point_cloud.ply
