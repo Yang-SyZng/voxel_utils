@@ -227,7 +227,7 @@ def main(*args: Namespace):
         #
         # if (flg_EKF_inited && !init_map) start
         #
-        # q?
+        # 
         # 将点云转换到世界坐标系
         
         world_lidar = vx.transformLidar(state, feats_undistort)  # 列表形式
@@ -292,6 +292,9 @@ def main(*args: Namespace):
 
         init_map = True
         
+        if publish_voxel_map:
+            vx.pubVoxelMap(voxel_map, publish_max_voxel_layer)
+
         return voxel_map
         #
         # if (flg_EKF_inited && !init_map) end

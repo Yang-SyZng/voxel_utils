@@ -56,6 +56,10 @@ class BasedPointCloud:
         if points.shape[1] != self.dim:
             raise ValueError(f"points must have shape (N, {self.dim}) for {self.description}")
         self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
+    @property
+    def size(self):
+        return self.points.shape[0]
+    
 class PointCloudXYZ(BasedPointCloud):
     def __init__(self, points=None):
         super().__init__(points=points, dim=3, description="[x, y, z]")

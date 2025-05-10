@@ -50,16 +50,20 @@ class pointWithCov:
             self.points = points.to(dtype=DOUBLE, device=DEVICE)
             self.covs = covs.to(dtype=DOUBLE, device=DEVICE)
 
-    def add_points(self, points, covs):
+    def add_points(self, points, covs=None):
         if not isinstance(points, torch.Tensor):
-            raise TypeError("must be a torch.Tensor")
-        if not isinstance(covs, torch.Tensor):
             raise TypeError("must be a torch.Tensor")
         if points.shape[1] != 3:
             raise ValueError("points must have shape (N, 3) for [x, y, z]")
-        
         self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
-        self.covs = torch.cat([self.covs, covs.to(device=DEVICE)], dim=0)
+        if covs is not None:
+            if not isinstance(covs, torch.Tensor):
+                raise TypeError("must be a torch.Tensor")
+            self.covs = torch.cat([self.covs, covs.to(device=DEVICE)], dim=0)
+
+    @property
+    def size(self):
+        return self.points.shape[0]
 
 class Plane:
     def __init__(self):
@@ -117,9 +121,9 @@ class OctoTree:
         self.layer_: int = layer
         self.octo_state_: int = 0  # 0: end of tree, 1: not end
         self.layer_point_size_: List[int] = layer_point_size
-        self.leaves_: List[Optional['OctoTree']] = [None for _ in range(8)]
+        self.leaves_: List[OctoTree] = [None for _ in range(8)]
         
-        self.voxel_center_: List[float] = [0.0, 0.0, 0.0]  # x, y, z
+        self.voxel_center_: torch.Tensor = torch.zeros((3), dtype=DOUBLE, device=DEVICE)  # 修正为张量  # x, y, z
         
         self.quater_length_: float = 0.0
         self.planer_threshold_: float = planer_threshold
@@ -256,8 +260,49 @@ class OctoTree:
             self.new_points_num_ = 0
         
     def cut_octo_tree(self):
-        pass
-    
+        if self.layer_ >= self.max_layer_:
+            self.octo_state_ = 0
+            return
+        points_tensor = self.temp_points_.points
+        xyz = (points_tensor > self.voxel_center_).int()  # (N, 3)
+        # 计算子节点索引
+        leafnums = 4 * xyz[:, 0] + 2 * xyz[:, 1] + xyz[:, 2]  # (N,)
+        for leafnum in torch.unique(leafnums):
+            leafnum_int: int = leafnum.item()
+            mask = (leafnums == leafnum_int)  # 筛选属于当前子节点的点
+            points_in_leaf = pointWithCov(self.temp_points_.points[mask], covs=self.temp_points_.covs[mask])
+            if self.leaves_[leafnum_int] is None:
+                self.leaves_[leafnum_int] = OctoTree(
+                    max_layer=self.max_layer_,
+                    layer=self.layer_ + 1,
+                    layer_point_size=self.layer_point_size_,
+                    max_points_size=self.max_points_size_,
+                    max_cov_points_size=self.max_cov_points_size_,
+                    planer_threshold=self.planer_threshold_
+                )
+                xyz_leaf = torch.tensor([
+                    (leafnum_int // 4) % 2,
+                    (leafnum_int // 2) % 2,
+                    leafnum_int % 2
+                ], dtype=torch.int32, device=DEVICE)
+                self.leaves_[leafnum_int].voxel_center_ = self.voxel_center_ + (2 * xyz_leaf - 1) * self.quater_length_
+                self.leaves_[leafnum_int].quater_length_ = self.quater_length_ / 2
+
+            # 分配点到子节点
+            self.leaves_[leafnum_int].temp_points_.add_points(points_in_leaf.points, points_in_leaf.covs)
+            self.leaves_[leafnum_int].new_points_num_ += points_in_leaf.size
+        
+        for i in range(8):
+            if self.leaves_[i] is not None:
+                if self.leaves_[i].temp_points_.size > self.leaves_[i].max_plane_update_threshold_:
+                    self.leaves_[i].init_plane(self.leaves_[i].temp_points_)
+                    if self.leaves_[i].plane_ptr_.is_plane:
+                        self.leaves_[i].octo_state_ = 0
+                    else:
+                        self.leaves_[i].octo_state_ = 1
+                        self.leaves_[i].cut_octo_tree()
+                    self.leaves_[i].init_octo_ = True
+                    self.leaves_[i].new_points_num_ = 0
     def UpdateOctoTree(self):
         pass
 
@@ -271,7 +316,29 @@ class OctoTree:
 # FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOO /      NN |   NNN |    SSSSSSSS /
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \______|       \__|   \___|    \_______/
 # Created by zty 2025/04/26
+def GetUpdatePlane(current_octo: OctoTree, pub_max_voxel_layer: int, plane_list: List[Plane]):
+    if current_octo.layer_ > pub_max_voxel_layer:
+        return plane_list
+    if current_octo.plane_ptr_.is_update:
+        plane_list.append(current_octo.plane_ptr_)
+    if current_octo.layer_ < current_octo.max_layer_ and not current_octo.plane_ptr_.is_plane:
+        for i in range(0, 8):
+            if current_octo.leaves_[i] is not None:
+                GetUpdatePlane(current_octo.leaves_[i], pub_max_voxel_layer, plane_list)
 
+def pubVoxelMap(voxel_map: Dict[VOXEL_LOC, OctoTree], pub_max_voxel_layer: int):
+    max_trace = 0.25
+    pow_num = 0.2
+    use_alpha = 0.8
+    pub_plane_list: List[Plane] = []
+    for _, value in voxel_map.items():
+        GetUpdatePlane(value, pub_max_voxel_layer, pub_plane_list)
+    print("voxel_map_plane_size:", len(pub_plane_list))
+    for pub_plane in pub_plane_list:
+        plane_cov_trace = torch.trace(pub_plane.plane_cov[:3, :3])
+        if plane_cov_trace >= max_trace:
+            plane_cov_trace = max_trace
+            
 def buildVoxelMap(input_points: pointWithCov,
                   voxel_size: float, max_layer: int,
                   layer_point_size: List[int],
