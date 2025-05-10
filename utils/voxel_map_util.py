@@ -337,16 +337,16 @@ def buildVoxelMap(input_points: pointWithCov,
     # exit(-1)
     return feat_map
 
-def transformLidar(state: StatesGroup, input_cloud: PointCloudXYZINormal):
+def transformLidar(state: StatesGroup, input_cloud: PointCloudXYZINormal) -> PointCloudXYZI:
     """
     Transform points from LiDAR frame to world frame.
 
     Args:
         state (StatesGroup): State object with rot_end (3, 3) and pos_end (3, 1).
-        input_cloud: List of points.
+        input_cloud: List of PointCloudXYZI objects
 
     Returns:
-        list: List of PointXYZI objects in world frame.
+        list: List of PointCloudXYZI objects in world frame.
     """
     # 提取点云的 x, y, z 和 intensity
     points_lidar = input_cloud.points[:, :3]  # 形状 (N, 3)
