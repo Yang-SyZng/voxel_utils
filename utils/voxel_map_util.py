@@ -2,7 +2,9 @@ import torch
 from typing import List, Optional, Dict
 from lib.common_lib import StatesGroup, PointCloudXYZINormal, PointCloudXYZI, PointCloudXYZ, BasedPointCloud
 from utils import DOUBLE, DEVICE
-
+import open3d as o3d
+import numpy as np
+from scipy.spatial import cKDTree
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
@@ -306,7 +308,17 @@ class OctoTree:
     def UpdateOctoTree(self):
         pass
 
+class PointCloud:
+    def __init__(self, points: np.ndarray = None, timestamps: np.ndarray = None):
+        self.points = points  # 形状 (N, 3)，numpy 数组
+        self.timestamps = timestamps  # 形状 (N,)，numpy 数组，表示时间戳
+        self.size = len(points) if points is not None else 0
 
+    def to_open3d(self):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.points)
+        return pcd
+    
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
 # FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
 # FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
@@ -316,6 +328,26 @@ class OctoTree:
 # FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOO /      NN |   NNN |    SSSSSSSS /
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \______|       \__|   \___|    \_______/
 # Created by zty 2025/04/26
+def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float = 0.05) -> PointCloud:
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(input_cloud.points[:, :3].clone().cpu().numpy())
+    down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
+    down_points = np.asarray(down_pcd.points)  # (M, 3)
+    
+# 使用 KDTree 查找最近点
+    original_points = input_cloud.points[:, :3].clone().detach().cpu().numpy()  # (N, 3)
+    tree = cKDTree(original_points)
+    distances, indices = tree.query(down_points, k=1)  # 查找最近点
+    threshold = voxel_size * 0.5  # 阈值设为体素大小的一半
+    invalid_indices = np.where(distances > threshold)[0]
+    if len(invalid_indices) > 0:
+        print(f"Warning: {len(invalid_indices)} points exceed distance threshold {threshold}")
+        for i in invalid_indices[:5]:  # 打印前 5 个问题点
+            print(f"Point {down_points[i]} not found within threshold from original points")
+    return PointCloudXYZINormal(
+        points=torch.tensor(down_points, dtype=DOUBLE, device=DEVICE)    )
+
+
 def GetUpdatePlane(current_octo: OctoTree, pub_max_voxel_layer: int, plane_list: List[Plane]):
     if current_octo.layer_ > pub_max_voxel_layer:
         return plane_list
@@ -334,11 +366,23 @@ def pubVoxelMap(voxel_map: Dict[VOXEL_LOC, OctoTree], pub_max_voxel_layer: int):
     for _, value in voxel_map.items():
         GetUpdatePlane(value, pub_max_voxel_layer, pub_plane_list)
     print("voxel_map_plane_size:", len(pub_plane_list))
-    for pub_plane in pub_plane_list:
-        plane_cov_trace = torch.trace(pub_plane.plane_cov[:3, :3])
-        if plane_cov_trace >= max_trace:
-            plane_cov_trace = max_trace
-            
+    
+    # 感觉下面是在RVIZ上写的
+    # for pub_plane in pub_plane_list:
+    #     plane_cov_trace = torch.trace(pub_plane.plane_cov[:3, :3])
+    #     if plane_cov_trace >= max_trace:
+    #         plane_cov_trace = max_trace
+    #     plane_cov_trace *= (1.0 / max_trace)
+    #     plane_cov_trace = plane_cov_trace ** pow_num
+    #     r, g, b = mapJet(plane_cov_trace, 0, 1)
+    #     plane_rgb = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+    #     plane_rgb[0] = r / 256.0, plane_rgb[1] = g / 256.0, plane_rgb[2] = b / 256.0
+    #     alpha = use_alpha if pub_plane.is_plane else alpha = 0
+    #     pubSinglePlane(voxel_map, "plane", pub_plane, alpha, plane_rgb)
+        
+def pubSinglePlane():
+    pass
+
 def buildVoxelMap(input_points: pointWithCov,
                   voxel_size: float, max_layer: int,
                   layer_point_size: List[int],
@@ -500,3 +544,30 @@ def calcBodyCov(points: torch.Tensor, range_inc: float, degree_inc: float) -> to
     cov = term1 + term2  # 形状 (N, 3, 3)
 
     return cov
+def mapJet(v: float, vmin: float, vmax: float):
+    v = vmin if v < vmin else None
+    v = vmax if v > vmax else None
+    if v < 0.1242:
+        db = 0.504 + ((1. - 0.504) / 0.1242) * v
+        dg = dr = 0.
+    elif v < 0.3747:
+        db = 1.
+        dr = 0.
+        dg = (v - 0.1242) * (1. / (0.3747 - 0.1242))
+    elif v < 0.6253:
+        db = (0.6253 - v) * (1. / (0.6253 - 0.3747))
+        dg = 1.
+        dr = (v - 0.3747) * (1. / (0.6253 - 0.3747))
+    elif v < 0.8758:
+        db = 0.
+        dr = 1.
+        dg = (0.8758 - v) * (1. / (0.8758 - 0.6253))
+    else:
+        db = dg = 0.
+        dr = 1. - (v - 0.8758) * ((1. - 0.504) / (1. - 0.8758))
+    
+    r = int(255 * dr)
+    g = int(255 * dg)
+    b = int(255 * db)
+    
+    return r, g, b
