@@ -334,16 +334,6 @@ def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float 
     down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
     down_points = np.asarray(down_pcd.points)  # (M, 3)
     
-# 使用 KDTree 查找最近点
-    original_points = input_cloud.points[:, :3].clone().detach().cpu().numpy()  # (N, 3)
-    tree = cKDTree(original_points)
-    distances, indices = tree.query(down_points, k=1)  # 查找最近点
-    threshold = voxel_size * 0.5  # 阈值设为体素大小的一半
-    invalid_indices = np.where(distances > threshold)[0]
-    if len(invalid_indices) > 0:
-        print(f"Warning: {len(invalid_indices)} points exceed distance threshold {threshold}")
-        for i in invalid_indices[:5]:  # 打印前 5 个问题点
-            print(f"Point {down_points[i]} not found within threshold from original points")
     return PointCloudXYZINormal(
         points=torch.tensor(down_points, dtype=DOUBLE, device=DEVICE)    )
 

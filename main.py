@@ -301,12 +301,12 @@ def main(*args: Namespace):
         #
         # downsample the feature points in a scan
         #
-        t_downsample_start = time.perf_counter()
-        feats_down_body = vx.downsample_point_cloud(feats_undistort, voxel_size=filter_size_surf_min)
-        t_downsample_end = time.perf_counter()
-        print(f"feats size: {feats_undistort.size}, down size: {feats_down_body.size}")
-        t_downsample = (t_downsample_end - t_downsample_start) * 1000  # 转换为毫秒
-        print(t_downsample)
+        # t_downsample_start = time.perf_counter()
+        # feats_down_body = vx.downsample_point_cloud(feats_undistort, voxel_size=filter_size_surf_min)
+        # t_downsample_end = time.perf_counter()
+        # print(f"feats size: {feats_undistort.size}, down size: {feats_down_body.size}")
+        # t_downsample = (t_downsample_end - t_downsample_start) * 1000  # 转换为毫秒
+        # print(t_downsample)
         
         return voxel_map
         #
