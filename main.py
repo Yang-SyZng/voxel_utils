@@ -307,7 +307,7 @@ def main(*args: Namespace):
         #
         # if (flg_EKF_inited && !init_map) end
         #
-    
+        # git push test
 if __name__ == '__main__':
     args = read_yaml("config/cloud2voxel_mapping.yaml")
     # print(args)
