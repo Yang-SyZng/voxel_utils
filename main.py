@@ -184,135 +184,156 @@ def main(*args: Namespace):
     
     last_rot = torch.eye(3, dtype=DOUBLE, device=DEVICE)
 
-    Measures = MeasureGroup()
     def sync_packages(meas: MeasureGroup):
-        if not imu_en:
-            # 确保输入张量形状匹配
-            if points_tensor.shape != normals_tensor.shape or points_tensor.shape[1] != 3:
-                raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
-            # 构造 intensity 列
-            intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-            curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-            # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
-            combined_tensor = torch.cat([
-                points_tensor,  # (N, 3) -> [x, y, z]
-                intensity,      # (N, 1) -> [intensity]
-                normals_tensor, # (N, 3) -> [nx, ny, nz]
-                curvature       # (N, 1) -> [curvature]
-            ], dim=1)  # 结果形状 (N, 7)
-            # 一次性添加到 meas.lidar
-            meas.lidar.add_points(combined_tensor)
-        return meas
-
-    Measures = sync_packages(Measures)
-    
-    #
-    # while
-    #
-    match_time = 0
-    solve_time = 0
-    svd_time = 0
-    # for row in state.cov:
-    #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
-    state, feats_undistort = p_imu.Process(Measures, state)
-    # print(feats_undistort.points[:5])
-    # for row in state.cov:
-    #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
- 
-    state_propagat = state
-    
-    if is_first_frame:
-        first_lidar_time = Measures.lidar_beg_time
-        is_first_frame = False
-    if init_map == False: 
-        #
-        # if (flg_EKF_inited && !init_map) start
-        #
-        # 
-        # 将点云转换到世界坐标系
+            if not imu_en:
+                # 确保输入张量形状匹配
+                if points_tensor.shape != normals_tensor.shape or points_tensor.shape[1] != 3:
+                    raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
+                # 构造 intensity 列
+                intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+                curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+                # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
+                combined_tensor = torch.cat([
+                    points_tensor,  # (N, 3) -> [x, y, z]
+                    intensity,      # (N, 1) -> [intensity]
+                    normals_tensor, # (N, 3) -> [nx, ny, nz]
+                    curvature       # (N, 1) -> [curvature]
+                ], dim=1)  # 结果形状 (N, 7)
+                # 一次性添加到 meas.lidar
+                meas.lidar.add_points(combined_tensor)
+                return True
+            return False
+    scanIdx = 0
+    while True:
+        Measures = MeasureGroup()
+        print(f"scanIdx:{scanIdx}")
+        if sync_packages(Measures):
+            match_time = 0
+            solve_time = 0
+            svd_time = 0
+            # for row in state.cov:
+            #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
+            state, feats_undistort = p_imu.Process(Measures, state)
+            # print(feats_undistort.points[:5])
+            # for row in state.cov:
+            #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
         
-        world_lidar = vx.transformLidar(state, feats_undistort)  # 列表形式
-        
-        #
-        # "for" change to "Batch" start
-        #
-        # 提取 feats_undistort 的点 (LiDAR 坐标系)
-        points_this = feats_undistort.points[:, :3]  # 形状 (N, 3)
-
-        # 提取 world_lidar 的点 (世界坐标系)
-        points_world = world_lidar.points[:, :3] # 形状 (N, 3)
-        # 如果 z=0，设置为 0.001
-        points_this[:, 2] = torch.where(points_this[:, 2] == 0, 0.001, points_this[:, 2])
-        # 计算协方差
-        covs = vx.calcBodyCov(points_this, ranging_cov, angle_cov)  # 形状 (N, 3, 3)
-        
-        # 协方差传播到世界坐标系
-        points_this = points_this + Lidar_offset_to_IMU.T  # 形状 (N, 3)
-        
-        # 计算叉积矩阵
-        point_crossmat = torch.zeros(points_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
-        point_crossmat[:, 0, 1] = -points_this[:, 2]
-        point_crossmat[:, 0, 2] = points_this[:, 1]
-        point_crossmat[:, 1, 0] = points_this[:, 2]
-        point_crossmat[:, 1, 2] = -points_this[:, 0]
-        point_crossmat[:, 2, 0] = -points_this[:, 1]
-        point_crossmat[:, 2, 1] = points_this[:, 0]  # 形状 (N, 3, 3)
-        
-        
-        # 提取状态协方差的子块
-        rot_end = state.rot_end  # 形状 (3, 3)
-        cov_rot = state.cov[:3, :3]  # 形状 (3, 3)
-        cov_pos = state.cov[3:6, 3:6]  # 形状 (3, 3)
-        # 协方差传播
-        N = points_this.shape[0]
-        # (N, 3, 3) * (N, 3, 3) * (N, 3, 3)
-        term1 = torch.bmm(torch.bmm(rot_end.unsqueeze(0).expand(N, -1, -1), covs),
-                            rot_end.t().unsqueeze(0).expand(N, -1, -1))  # (N, 3, 3)
-        term2 = torch.bmm(torch.bmm(-point_crossmat, cov_rot.unsqueeze(0).expand(N, -1, -1)),
-                            (-point_crossmat).transpose(1, 2))  # (N, 3, 3)
-        term3 = cov_pos.unsqueeze(0).expand(N, -1, -1)  # (N, 3, 3)
-        covs = term1 + term2 + term3  # 形状 (N, 3, 3)
-        
-        
-        # 创建 pv_list
-        pv_list = pointWithCov()
-        pv_list.add_points(points_world, covs)
-
-        # 计算标准差
-        sigma_pv = torch.diagonal(covs, dim1=1, dim2=2)  # 形状 (N, 3)
-        sigma_pv = torch.sqrt(sigma_pv)  # 形状 (N, 3)
-        #
-        # "for" change to "Batch" end
-        #
-        # print("max_layer:", max_layer)
-        # print(pv_list.points.shape)
-        # print(max_voxel_size, max_layer, max_points_size, min_eigen_value)
-        voxel_map = vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
-                                    max_points_size, max_points_size, min_eigen_value,
-                                    voxel_map)
-
-        if publish_voxel_map:
-            vx.pubVoxelMap(voxel_map, publish_max_voxel_layer)
+            state_propagat = state
             
-        init_map = True
+            if is_first_frame:
+                first_lidar_time = Measures.lidar_beg_time
+                is_first_frame = False
+            if init_map == False: 
+                #
+                # if (flg_EKF_inited && !init_map) start
+                #
+                # 
+                # 将点云转换到世界坐标系
+                
+                world_lidar = vx.transformLidar(state, feats_undistort)  # 列表形式
+                
+                #
+                # "for" change to "Batch" start
+                #
+                # 提取 feats_undistort 的点 (LiDAR 坐标系)
+                points_this = feats_undistort.points[:, :3]  # 形状 (N, 3)
+
+                # 提取 world_lidar 的点 (世界坐标系)
+                points_world = world_lidar.points[:, :3] # 形状 (N, 3)
+                # 如果 z=0，设置为 0.001
+                points_this[:, 2] = torch.where(points_this[:, 2] == 0, 0.001, points_this[:, 2])
+                # 计算协方差
+                covs = vx.calcBodyCov(points_this, ranging_cov, angle_cov)  # 形状 (N, 3, 3)
+                
+                # 协方差传播到世界坐标系
+                points_this = points_this + Lidar_offset_to_IMU.T  # 形状 (N, 3)
+                
+                # 计算叉积矩阵
+                point_crossmat = torch.zeros(points_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
+                point_crossmat[:, 0, 1] = -points_this[:, 2]
+                point_crossmat[:, 0, 2] = points_this[:, 1]
+                point_crossmat[:, 1, 0] = points_this[:, 2]
+                point_crossmat[:, 1, 2] = -points_this[:, 0]
+                point_crossmat[:, 2, 0] = -points_this[:, 1]
+                point_crossmat[:, 2, 1] = points_this[:, 0]  # 形状 (N, 3, 3)
+                
+                
+                # 提取状态协方差的子块
+                rot_end = state.rot_end  # 形状 (3, 3)
+                cov_rot = state.cov[:3, :3]  # 形状 (3, 3)
+                cov_pos = state.cov[3:6, 3:6]  # 形状 (3, 3)
+                # 协方差传播
+                N = points_this.shape[0]
+                # (N, 3, 3) * (N, 3, 3) * (N, 3, 3)
+                term1 = torch.bmm(torch.bmm(rot_end.unsqueeze(0).expand(N, -1, -1), covs),
+                                    rot_end.t().unsqueeze(0).expand(N, -1, -1))  # (N, 3, 3)
+                term2 = torch.bmm(torch.bmm(-point_crossmat, cov_rot.unsqueeze(0).expand(N, -1, -1)),
+                                    (-point_crossmat).transpose(1, 2))  # (N, 3, 3)
+                term3 = cov_pos.unsqueeze(0).expand(N, -1, -1)  # (N, 3, 3)
+                covs = term1 + term2 + term3  # 形状 (N, 3, 3)
+                
+                
+                # 创建 pv_list
+                pv_list = pointWithCov()
+                pv_list.add_points(points_world, covs)
+
+                # 计算标准差
+                sigma_pv = torch.diagonal(covs, dim1=1, dim2=2)  # 形状 (N, 3)
+                sigma_pv = torch.sqrt(sigma_pv)  # 形状 (N, 3)
+                #
+                # "for" change to "Batch" end
+                #
+                # print("max_layer:", max_layer)
+                # print(pv_list.points.shape)
+                # print(max_voxel_size, max_layer, max_points_size, min_eigen_value)
+                voxel_map = vx.buildVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
+                                            max_points_size, max_points_size, min_eigen_value,
+                                            voxel_map)
+
+                if publish_voxel_map:
+                    vx.pubVoxelMap(voxel_map, publish_max_voxel_layer)
+                    
+                init_map = True
+                scanIdx += 1
+                continue
+            
+            
+            #
+            # downsample the feature points in a scan
+            #
+            print(state.cov)
+            t_downsample_start = time.perf_counter()
+            feats_down_body = vx.downsample_point_cloud(feats_undistort, voxel_size=filter_size_surf_min)
+            t_downsample_end = time.perf_counter()
+            print(f"feats size: {feats_undistort.size}, down size: {feats_down_body.size}")
+            t_downsample = (t_downsample_end - t_downsample_start) * 1000  # 转换为毫秒
+            
+            calc_point_cov_start = time.perf_counter()
+            points_this = feats_down_body.points[:, :3]  # 形状 (N, 3)
+            # 如果 z=0，设置为 0.001
+            points_this[:, 2] = torch.where(points_this[:, 2] == 0, 0.001, points_this[:, 2])
+            # 计算协方差
+            covs = vx.calcBodyCov(points_this, ranging_cov, angle_cov)  # 形状 (N, 3, 3)
+            # 计算叉积矩阵
+            crossmat_list = torch.zeros(points_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
+            crossmat_list[:, 0, 1] = -points_this[:, 2]
+            crossmat_list[:, 0, 2] = points_this[:, 1]
+            crossmat_list[:, 1, 0] = points_this[:, 2]
+            crossmat_list[:, 1, 2] = -points_this[:, 0]
+            crossmat_list[:, 2, 0] = -points_this[:, 1]
+            crossmat_list[:, 2, 1] = points_this[:, 0]  # 形状 (N, 3, 3)
         
-        
-        
-        #
-        # downsample the feature points in a scan
-        #
-        t_downsample_start = time.perf_counter()
-        feats_down_body = vx.downsample_point_cloud(feats_undistort, voxel_size=filter_size_surf_min)
-        t_downsample_end = time.perf_counter()
-        print(f"feats size: {feats_undistort.size}, down size: {feats_down_body.size}")
-        t_downsample = (t_downsample_end - t_downsample_start) * 1000  # 转换为毫秒
-        print(t_downsample)
-        
-        return voxel_map
-        #
-        # if (flg_EKF_inited && !init_map) end
-        #
-        # test again
+            body_var = state.cov[3:6, 3:6]
+            
+            calc_point_cov_end = time.perf_counter()
+
+            scanIdx += 1
+            exit(-1)
+            return voxel_map
+            #
+            # if (flg_EKF_inited && !init_map) end
+            #
+            # test again
 if __name__ == '__main__':
     args = read_yaml("config/cloud2voxel_mapping.yaml")
     # print(args)

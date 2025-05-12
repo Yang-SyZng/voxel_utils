@@ -332,14 +332,22 @@ class PointCloud:
 # FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOO /      NN |   NNN |    SSSSSSSS /
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \______|       \__|   \___|    \_______/
 # Created by zty 2025/04/26
-def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float = 0.05) -> PointCloud:
+def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float = 0.05) -> PointCloudXYZINormal:
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(input_cloud.points[:, :3].clone().cpu().numpy())
     down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
     down_points = np.asarray(down_pcd.points)  # (M, 3)
-    
+    down_points = torch.tensor(down_points, dtype=DOUBLE, device=DEVICE)
+    intensity = torch.zeros((down_points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+    curvature = torch.zeros((down_points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+    normals_tensor = torch.zeros((down_points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
     return PointCloudXYZINormal(
-        points=torch.tensor(down_points, dtype=DOUBLE, device=DEVICE)    )
+        points=torch.cat([
+                down_points,  # (N, 3) -> [x, y, z]
+                intensity,      # (N, 1) -> [intensity]
+                normals_tensor, # (N, 3) -> [nx, ny, nz]
+                curvature       # (N, 1) -> [curvature]
+            ], dim=1))  # 结果形状 (N, 7)    )
 
 
 def GetUpdatePlane(current_octo: OctoTree, pub_max_voxel_layer: int, plane_list: List[Plane]):
