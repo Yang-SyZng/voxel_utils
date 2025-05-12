@@ -151,11 +151,15 @@ class OctoTree:
         self.plane_ptr_.points_size = points.points.shape[0]
         self.plane_ptr_.radius = 0
         
+        # (N, 3, 1)
         points_tensor = points.points
         N = points.points.shape[0]
+        # (3)
         self.plane_ptr_.center = torch.mean(points_tensor, dim=0)
-        centered_points = points_tensor - self.plane_ptr_.center  # (N, 3)
-        self.plane_ptr_.covariance = torch.matmul(centered_points.T, centered_points) / N  # (3, 3)
+        # (N, 3)
+        centered_points = points_tensor - self.plane_ptr_.center
+        # (3, N) @ (N, 3) -> (3, 3)
+        self.plane_ptr_.covariance = torch.matmul(centered_points.T, centered_points) / N
         
         # print(self.plane_ptr_.center)
         # print(self.plane_ptr_.covariance)
