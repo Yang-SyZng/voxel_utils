@@ -180,6 +180,7 @@ class ImuProcess:
         self.angvel_last = Zero3d.clone()
         self.Lid_offset_to_IMU = Lidar_offset_to_IMU.clone()
         self.Lid_rot_to_IMU = Eye3d.clone()
+        self.first_lidar_time = None
         # self.last_imu_
 
     def Reset(self):
