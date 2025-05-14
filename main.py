@@ -454,7 +454,7 @@ def main(*args: Namespace):
                 laserCloudOri = []
                 laserCloudNoeffect = []
                 corr_normvect = []
-                total_residual = 0.0
+                total_residual: float = 0.0
 
                 r_list = []
                 ptpl_list = []
@@ -463,31 +463,27 @@ def main(*args: Namespace):
                 # 假设 transformLidar 已自定义或存在
                 world_lidar = vx.transformLidar(state, p_imu, feats_down_body)
 
-                pv_list = []
-                var_list = []
-
-                # 处理点云
-                for i in range(len(feats_down_body)):
-                    pv = {}
-                    point = feats_down_body[i]
-                    pv['point'] = torch.tensor([point.x, point.y, point.z])
-                    pv['point_world'] = torch.tensor([world_lidar.points[i].x, world_lidar.points[i].y, world_lidar.points[i].z])
-                    # cov处理（示例）
-                    cov = body_var[i]
-                    # 其他变量
-                    pv['cov'] = cov
-                    pv_list.append(pv)
-                    var_list.append(cov)
+                pv_list = pointWithCov()
+                
+                world_lidar = vx.transformLidar(state, feats_down_body)
+                pv = pointWithCov(points=feats_down_body.points[:, :3])
+                pv.add_point_world(world_lidar.points[:, :3])
+                cov = body_var.clone()
+                point_crossmat = crossmat_list.clone()
+                rot_var = state.cov[:, :3, :3]
+                t_var = state.cov[:, 3:6, 3:6]
+                # (3, 3) * (N, 3, 3) * (3, 3)^T + (N, 3, 3) * (3, 3) * (N, 3, 3)^T + (3, 3)
+                cov = state.rot_end * cov * state.rot_end.T + \
+                        (-point_crossmat) * rot_var * (-point_crossmat.T) + \
+                        t_var
+                pv.covs = cov
+                pv_list = pv
+                var_list = cov
 
                 # 构建残差列表
-                start_time = time.time()
-                non_match_list = []
 
                 # 假设 BuildResidualListOMP 已定义
                 ptpl_list, non_match_list = vx.BuildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
-
-                end_time = time.time()
-                scan_match_time = (end_time - start_time) * 1000  # ms
 
                 effct_feat_num = 0
                 total_residual = 0.0
