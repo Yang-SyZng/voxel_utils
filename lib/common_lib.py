@@ -312,7 +312,7 @@ class ImuProcess:
             print("测试时间戳，dt", self.time_last_scan_, dt)
 
         Exp_f = Exp(state_inout.bias_g, dt)  # 使用新的 Exp 函数
-
+        print("Exp_f", Exp_f)
         F_x = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
         cov_w = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 

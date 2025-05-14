@@ -332,6 +332,121 @@ class PointCloud:
 # FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOO /      NN |   NNN |    SSSSSSSS /
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \______|       \__|   \___|    \_______/
 # Created by zty 2025/04/26
+def build_single_residual(pv, current_octo, current_layer, max_layer, sigma_num, is_success, prob, single_ptpl):
+    radius_k = 3
+    p_w = pv['point_world']  # 3维张量
+
+    if current_octo.plane_ptr.is_plane:
+        plane = current_octo.plane_ptr
+        p_world_to_center = p_w - plane.center  # 3维向量
+        proj_x = torch.dot(p_world_to_center, plane.x_normal)
+        proj_y = torch.dot(p_world_to_center, plane.y_normal)
+        dis_to_plane = torch.abs(
+            plane.normal[0] * p_w[0] +
+            plane.normal[1] * p_w[1] +
+            plane.normal[2] * p_w[2] +
+            plane.d
+        )
+        dis_to_center = torch.norm(plane.center - p_w)
+
+        range_dis = torch.sqrt(
+            dis_to_center ** 2 - dis_to_plane ** 2
+        )
+
+        if range_dis <= radius_k * plane.radius:
+            J_nq = torch.cat([p_w - plane.center, -plane.normal], dim=0).unsqueeze(0)  # 1x6
+            sigma_l = J_nq @ plane.plane_cov @ J_nq.t()
+            sigma_l = sigma_l.squeeze()  # scalar
+            sigma_l += plane.normal @ pv['cov'] @ plane.normal
+
+            if dis_to_plane < sigma_num * torch.sqrt(sigma_l):
+                is_success[0] = True
+                this_prob = (1.0 / torch.sqrt(sigma_l)) * torch.exp(-0.5 * dis_to_plane ** 2 / sigma_l)
+                if this_prob > prob[0]:
+                    prob[0] = this_prob
+                    single_ptpl['point'] = pv['point']
+                    single_ptpl['plane_cov'] = plane.plane_cov
+                    single_ptpl['normal'] = plane.normal
+                    single_ptpl['center'] = plane.center
+                    single_ptpl['d'] = plane.d
+                    single_ptpl['layer'] = current_layer
+                return
+            else:
+                return
+        else:
+            return
+    else:
+        # 叶子节点，递归子区块
+        if current_layer < max_layer:
+            for leaf in current_octo.leaves_:
+                if leaf is not None:
+                    build_single_residual(pv, leaf, current_layer + 1, max_layer, sigma_num, is_success, prob, single_ptpl)
+        return
+
+def buildResidualListOMP(voxel_map, voxel_size, sigma_num, max_layer, pv_list, ptpl_list, non_match):
+    # 用于存储最终的结果
+    all_ptpl_list = [None] * len(pv_list)
+    useful_ptpl = [False] * len(pv_list)
+    index = list(range(len(pv_list)))
+    mylock = threading.Lock()
+
+    def process_idx(i):
+        pv = pv_list[i]
+        loc_xyz = pv['point_world'] / voxel_size
+        loc_xyz = torch.floor(loc_xyz)  # 取整
+        position = VOXEL_LOC(int(loc_xyz[0].item()), int(loc_xyz[1].item()), int(loc_xyz[2].item()))
+        if position in voxel_map:
+            current_octo = voxel_map[position]
+            single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
+            is_success = False
+            prob = 0
+            # 令 build_single_residual 返回值
+            is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
+            if not is_success:
+                near_position = position.copy()
+                # 根据子区间偏移near_position
+                for axis in range(3):
+                    center = current_octo.voxel_center_[axis]
+                    quarter_length = current_octo.quater_length_
+                    if loc_xyz[axis] > center + quarter_length:
+                        near_position[axis] += 1
+                    elif loc_xyz[axis] < center - quarter_length:
+                        near_position[axis] -= 1
+                if near_position in voxel_map:
+                    near_octo = voxel_map[near_position]
+                    is_success, prob, single_ptpl = build_single_residual(pv, near_octo, 0, max_layer, sigma_num)
+            if is_success:
+                with mylock:
+                    useful_ptpl[i] = True
+                    all_ptpl_list[i] = single_ptpl
+
+    threads = []
+    for i in range(len(pv_list)):
+        t = threading.Thread(target=process_idx, args=(i,))
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
+
+    # 收集有效的
+    for i, valid in enumerate(useful_ptpl):
+        if valid:
+            ptpl_list.append(all_ptpl_list[i])
+
+def RotMtoEuler(rot: torch.Tensor) -> torch.Tensor:
+    # rot: 3x3旋转矩阵
+    sy = torch.sqrt(rot[0, 0] ** 2 + rot[1, 0] ** 2)
+    singular = sy < 1e-6
+    if not singular:
+        x = torch.atan2(rot[2, 1], rot[2, 2])
+        y = torch.atan2(-rot[2, 0], sy)
+        z = torch.atan2(rot[1, 0], rot[0, 0])
+    else:
+        x = torch.atan2(-rot[1, 2], rot[1, 1])
+        y = torch.atan2(-rot[2, 0], sy)
+        z = torch.tensor(0.0)
+    return torch.stack([x, y, z])  # 返回欧拉角（roll, pitch, yaw）
+
 def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float = 0.05) -> PointCloudXYZINormal:
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(input_cloud.points[:, :3].clone().cpu().numpy())
