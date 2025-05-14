@@ -4,7 +4,10 @@ import yaml
 import torch
 from typing import Final, List, Dict
 import lib.common_lib as cl
-from lib.common_lib import StatesGroup, ImuProcess, PointCloudXYZINormal, PointCloudXYZI, MeasureGroup, Lidar_offset_to_IMU # PointXYZINormal
+from lib.common_lib import StatesGroup, ImuProcess, \
+                            PointCloudXYZINormal, PointCloudXYZI, \
+                            MeasureGroup, Lidar_offset_to_IMU, \
+                            TimestampUpdater # PointXYZINormal
 from lib import DIM_STATE
 from utils.voxel_map_util import pointWithCov, VOXEL_LOC, OctoTree
 from utils import DOUBLE, DEVICE
@@ -26,6 +29,65 @@ torch.set_printoptions(sci_mode=False, precision=12, linewidth=1000)
 
 INIT_TIME: Final = 0.0
 CALIB_ANGLE_COV: Final = 0.01
+
+scanIdx = 0
+lid_topic = None
+imu_topic = None
+ranging_cov = None
+angle_cov = None
+gyr_cov_scale = None
+acc_cov_scale = None
+imu_en = None
+extrinT = None
+extrinR = None
+NUM_MAX_ITERATIONS = None
+max_points_size = None
+max_cov_points_size = None
+layer_point_size = None
+layer_size = None
+max_layer = None
+max_voxel_size = None
+filter_size_surf_min = None
+min_eigen_value = None
+calib_laser = None
+scan_line = None
+publish_voxel_map = None
+publish_max_voxel_layer = None
+publish_point_cloud = None
+pub_point_cloud_skip = None
+dense_map_en = None
+write_kitti_log = None
+result_path = None
+file_path = None
+file_format = None
+pcd = None
+points_tensor = None
+normals_tensor = None
+rgb_tensor = None
+solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
+G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+H_T_H = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
+I_STATE = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
+rot_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+t_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+state_propagat = None
+state = None
+corr_normvect = []
+frame_num: int = 0
+deltaT: int = 0
+deltaR: int = 0
+aver_time_consu: int = 0
+flg_EKF_inited: bool  = False
+flg_EKF_converged: bool = False
+EKF_stop_flg: bool = False
+is_first_frame: bool = True
+downSizeFilterSurf = None
+
+# time_buffer: float = 0.
+last_timestamp_lidar: float = -1.0
+timer = None
+
+Measures = MeasureGroup()
 
 feats_undistort = PointCloudXYZINormal()
 feats_down_body = PointCloudXYZI()
@@ -79,7 +141,62 @@ def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
 
     return pcd
 
+def sync_packages(meas: MeasureGroup):
+    if not imu_en:
+        # 确保输入张量形状匹配
+        if points_tensor.shape != normals_tensor.shape or points_tensor.shape[1] != 3:
+            raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
+        # 构造 intensity 列
+        intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+        curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+        # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
+        combined_tensor = torch.cat([
+            points_tensor,  # (N, 3) -> [x, y, z]
+            intensity,      # (N, 1) -> [intensity]
+            normals_tensor, # (N, 3) -> [nx, ny, nz]
+            curvature       # (N, 1) -> [curvature]
+        ], dim=1)  # 结果形状 (N, 7)
+        # 一次性添加到 meas.lidar
+        meas.lidar.add_points(combined_tensor)
+        # meas.lidar_beg_time = time_buffer
+        meas.lidar_beg_time = timer.timestamp.toSec()
+        print(f"sync_packages:{meas.lidar_beg_time}")
+        return True
+    return False
+
+def standard_pcl_cbk(msg):
+    global last_timestamp_lidar
+    
+    # 如果当前的时间戳小于上次的时间戳，说明是回环数据，清空缓冲区
+    if msg['header']['stamp'] < last_timestamp_lidar:
+        print("lidar loop back, clear buffer")
+        # lidar_buffer.clear()
+
+    # 假设这里是点云处理的过程，这里可以根据你的需求处理 msg
+    # PointCloudXYZI 的处理逻辑在这里，简化成一个示例
+    # ptr = {"points": msg['data']}  # 处理后的点云数据
+
+    # 将点云数据和时间戳加入到队列中
+    # lidar_buffer.append(ptr)
+    time_buffer = timer.timestamp.toSec()
+    
+    # 更新上次的时间戳
+    last_timestamp_lidar = time_buffer
+
+    # 这里可以加上其他需要通知的操作（例如多线程通知等）
+    # print(f"Received point cloud at time: {msg['header']['stamp']:.6f}")
+
 def main(*args: Namespace):
+    global scanIdx, lid_topic, imu_topic, ranging_cov, angle_cov, gyr_cov_scale, acc_cov_scale
+    global imu_en, extrinT, extrinR, NUM_MAX_ITERATIONS, max_points_size, max_cov_points_size
+    global layer_point_size, layer_size, max_layer, max_voxel_size, filter_size_surf_min, min_eigen_value
+    global calib_laser, scan_line, publish_voxel_map, publish_max_voxel_layer, publish_point_cloud
+    global pub_point_cloud_skip, dense_map_en, write_kitti_log, result_path, file_path, file_format
+    global pcd, points_tensor, normals_tensor, rgb_tensor
+    global solution, G, H_T_H, I_STATE, rot_add, t_add, state_propagat, state
+    global corr_normvect, frame_num, deltaT, deltaR, aver_time_consu
+    global flg_EKF_inited, flg_EKF_converged, EKF_stop_flg, is_first_frame, downSizeFilterSurf
+    global timer, Measures
     if isinstance(args, tuple):
         args = args[0]
     
@@ -153,19 +270,20 @@ def main(*args: Namespace):
     # coeff = PointXYZINormal()
     
     corr_normvect = []
-    frame_num: int = 0
+    frame_num = 0
     
-    deltaT: int = 0
-    deltaR: int = 0
-    aver_time_consu: int = 0
-    flg_EKF_inited: bool = False
-    flg_EKF_converged: bool = False
-    EKF_stop_flg: bool = False
-    is_first_frame: bool = True
+    deltaT = 0
+    deltaR = 0
+    aver_time_consu = 0
+    flg_EKF_inited = False
+    flg_EKF_converged = False
+    EKF_stop_flg = False
+    is_first_frame = True
     #
     downSizeFilterSurf = None
     #
-
+    timer = TimestampUpdater(5.0)
+    timer.start()
     p_imu = ImuProcess()
     p_imu.imu_en = imu_en
     extT = extrinT.clone()
@@ -182,30 +300,9 @@ def main(*args: Namespace):
     init_map: bool = False
     voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
     
-    last_rot = torch.eye(3, dtype=DOUBLE, device=DEVICE)
-
-    def sync_packages(meas: MeasureGroup):
-            if not imu_en:
-                # 确保输入张量形状匹配
-                if points_tensor.shape != normals_tensor.shape or points_tensor.shape[1] != 3:
-                    raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
-                # 构造 intensity 列
-                intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-                curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-                # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
-                combined_tensor = torch.cat([
-                    points_tensor,  # (N, 3) -> [x, y, z]
-                    intensity,      # (N, 1) -> [intensity]
-                    normals_tensor, # (N, 3) -> [nx, ny, nz]
-                    curvature       # (N, 1) -> [curvature]
-                ], dim=1)  # 结果形状 (N, 7)
-                # 一次性添加到 meas.lidar
-                meas.lidar.add_points(combined_tensor)
-                return True
-            return False
+    # last_rot = torch.eye(3, dtype=DOUBLE, device=DEVICE)
     scanIdx = 0
     while True:
-        Measures = MeasureGroup()
         print(f"scanIdx:{scanIdx}")
         if sync_packages(Measures):
             match_time = 0
@@ -214,6 +311,7 @@ def main(*args: Namespace):
             # for row in state.cov:
             #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
             state, feats_undistort = p_imu.Process(Measures, state)
+            print(state.cov)
             # print(feats_undistort.points[:5])
             # for row in state.cov:
             #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
@@ -301,7 +399,7 @@ def main(*args: Namespace):
             #
             # downsample the feature points in a scan
             #
-            print(state.cov)
+            # print(state.cov)
             t_downsample_start = time.perf_counter()
             feats_down_body = vx.downsample_point_cloud(feats_undistort, voxel_size=filter_size_surf_min)
             t_downsample_end = time.perf_counter()
@@ -328,8 +426,10 @@ def main(*args: Namespace):
             calc_point_cov_end = time.perf_counter()
 
             scanIdx += 1
-            exit(-1)
-            return voxel_map
+            time.sleep(6)
+            print(f"end")
+            # exit(-1)
+    return voxel_map
         
             #
             # if (flg_EKF_inited && !init_map) end

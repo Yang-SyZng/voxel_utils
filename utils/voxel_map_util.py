@@ -4,7 +4,7 @@ from lib.common_lib import StatesGroup, PointCloudXYZINormal, PointCloudXYZI, Po
 from utils import DOUBLE, DEVICE
 import open3d as o3d
 import numpy as np
-from scipy.spatial import cKDTree
+
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /

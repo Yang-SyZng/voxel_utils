@@ -2,7 +2,8 @@ import torch
 from typing import List
 from utils import DOUBLE, DEVICE, FLOAT64
 from lib import DIM_STATE, INIT_COV
-
+import time
+import threading
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
@@ -22,7 +23,6 @@ G_m_s2 = 9.81  # 重力加速度
 Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 # Vector3d shape(3, 1)
 # Matrix3d shape(3, 3)
-
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\     EEEEEEEEEEE\  SSSSSSSS\
 #  CC ________|   LL |          AA  ____AA\    SS  ______|   SS  ______|    EE  ______|  SS  ______|
@@ -182,7 +182,7 @@ class ImuProcess:
         self.Lid_rot_to_IMU = Eye3d.clone()
         self.first_lidar_time = None
         # self.last_imu_
-
+        self.time_last_scan_: float = -1.0
     def Reset(self):
         self.mean_acc = torch.tensor([[0], [0], [-1.0]], dtype=DOUBLE, device=DEVICE)
         self.mean_gyr = torch.tensor([[0], [0], [0]], dtype=DOUBLE, device=DEVICE)
@@ -303,10 +303,13 @@ class ImuProcess:
         if self.b_first_frame_:
             dt = 0.1
             self.b_first_frame_ = False
-            time_last_scan_ = pcl_beg_time
+            self.time_last_scan_ = pcl_beg_time
+            print("测试", pcl_beg_time)
         else:
-            dt = pcl_beg_time - time_last_scan_
-            time_last_scan_ = pcl_beg_time
+            # dt = pcl_beg_time - self.time_last_scan_
+            dt = 5.
+            self.time_last_scan_ = pcl_beg_time
+            print("测试时间戳，dt", self.time_last_scan_, dt)
 
         Exp_f = Exp(state_inout.bias_g, dt)  # 使用新的 Exp 函数
 
@@ -358,7 +361,32 @@ class ImuProcess:
             self.cov_acc = self.cov_acc_scale.clone()
             self.cov_gyr = self.cov_gyr_scale.clone()
             return self.only_propag(meas=meas, state_inout=stat)
+class PointCloud2Msg:
+    def __init__(self, timestamp=None, data=None):
+        # 如果未提供时间戳，则使用当前时间
+        self.header = {'stamp': timestamp if timestamp is not None else time.time()}
 
+    def toSec(self):
+        # 获取时间戳
+        return self.header['stamp']
+class TimestampUpdater:
+    def __init__(self, Duration: float):
+        self.timestamp = PointCloud2Msg()  # 初始化时间戳
+        self.running = True  # 启动暂停
+        self.Duration = Duration
+    def update_timestamp(self):
+        while self.running:
+            self.timestamp.header['stamp'] = time.time()  # 更新时间戳
+            print(f"Updated Timestamp: {self.timestamp.toSec()}")
+            time.sleep(self.Duration)
+
+    def start(self):
+        thread = threading.Thread(target=self.update_timestamp)
+        thread.daemon = True  # 设置为守护线程，确保程序退出时它也退出
+        thread.start()
+
+    def stop(self):
+        self.running = False
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
 # FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
 # FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
