@@ -185,10 +185,6 @@ def standard_pcl_cbk(msg):
 
     # 这里可以加上其他需要通知的操作（例如多线程通知等）
     # print(f"Received point cloud at time: {msg['header']['stamp']:.6f}")
-    
-def buildResidualListOMP(voxel_map, max_voxel_size, threshold, max_layer, pv_list, ptpl_list, non_match_list):
-    # 构建残差列表
-    pass
 
 def pointBodyToWorld(pi: PointCloudXYZINormal, po: PointCloudXYZINormal):
     p_body = pi.points[:, :3] + Lidar_offset_to_IMU
@@ -456,7 +452,6 @@ def main(*args: Namespace):
                 corr_normvect = []
                 total_residual: float = 0.0
 
-                r_list = []
                 ptpl_list = []
 
                 # 转换LiDAR
@@ -466,8 +461,8 @@ def main(*args: Namespace):
                 pv_list = pointWithCov()
                 
                 world_lidar = vx.transformLidar(state, feats_down_body)
-                pv = pointWithCov(points=feats_down_body.points[:, :3])
-                pv.add_point_world(world_lidar.points[:, :3])
+                pv_list.points = feats_down_body.points[:, :3]
+                pv_list.point_world = world_lidar.points[:, :3]
                 cov = body_var.clone()
                 point_crossmat = crossmat_list.clone()
                 rot_var = state.cov[:, :3, :3]
@@ -476,8 +471,7 @@ def main(*args: Namespace):
                 cov = state.rot_end * cov * state.rot_end.T + \
                         (-point_crossmat) * rot_var * (-point_crossmat.T) + \
                         t_var
-                pv.covs = cov
-                pv_list = pv
+                pv_list.covs = cov
                 var_list = cov
 
                 # 构建残差列表

@@ -356,9 +356,9 @@ def build_single_residual(pv: pointWithCov, current_octo: OctoTree,
         
         # (N, 3) - (3,) -> (N, 3)
         p_world_to_center = p_w - plane.center
-        # (N, 3) @ (3,) -> (N,)
-        proj_x = torch.sum(p_world_to_center * plane.x_normal, dim=1)
-        proj_y = torch.sum(p_world_to_center * plane.y_normal, dim=1)
+        # # (N, 3) @ (3,) -> (N,)
+        # proj_x = torch.sum(p_world_to_center * plane.x_normal, dim=1)
+        # proj_y = torch.sum(p_world_to_center * plane.y_normal, dim=1)
         # (N, 3) @ (3,) + scalar -> (N,)
         dis_to_plane = torch.abs(
             torch.sum(plane.normal * p_w, dim=1) + plane.d
@@ -414,7 +414,6 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
     useful_ptpl = [False] * pv_list.size
     index = list(range(pv_list.size))
     mylock = threading.Lock()
-    pv = pv_list
     loc_xyz = pv.point_world / voxel_size # torch.Tensor (N, 3)
     loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
     loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
@@ -426,10 +425,18 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
         voxel_idx = loc_xyz_unique[i]  # (3,)
         position = VOXEL_LOC(int(voxel_idx[0]), int(voxel_idx[1]), int(voxel_idx[2]))
         current_octo = voxel_map[position]
+        # 找到属于该体素的所有点
+        mask = (inverse_indices == i)
+        pv = pointWithCov()
+        pv.points = pv_list.points[mask]
+        pv.covs = pv_list.covs[mask]
+        pv.point_world = pv_list.point_world[mask]
         single_ptpl: List[Ptpl]
         is_success: List[bool] = False
         prob: List[float] = 0.
         build_single_residual(pv, current_octo, 0, max_layer, sigma_num, is_success, prob, single_ptpl)
+    
+
     def process_idx(i):
         pv = pv_list[i]
         loc_xyz = pv['point_world'] / voxel_size
