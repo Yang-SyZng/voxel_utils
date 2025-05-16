@@ -138,6 +138,15 @@ class PointXYZINormal(PointXYZI):
         self.normals = torch.cat([self.normals, normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.curvature = torch.cat([self.curvature, curvature.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
+    def update_normals(self, normals):
+        if not isinstance(normals, torch.Tensor):
+            raise TypeError("normals must be a torch.Tensor")
+        if normals.shape[1] != 3:
+            raise ValueError("Each normals must have 1 coordinates (nx, ny, nz)")
+        if normals.shape[0] != self.normals.shape[0]:
+            raise ValueError("normals must match shape")
+        self.normals = normals
+        
     def update_curvature(self, curvature):
         if not isinstance(curvature, torch.Tensor):
             raise TypeError("curvature must be a torch.Tensor")
@@ -147,14 +156,6 @@ class PointXYZINormal(PointXYZI):
             raise ValueError("curvature must match shape")
         self.curvature = curvature
     
-    def update_normals(self, normals):
-        if not isinstance(normals, torch.Tensor):
-            raise TypeError("normals must be a torch.Tensor")
-        if normals.shape[1] != 3:
-            raise ValueError("Each normals must have 1 coordinates (nx, ny, nz)")
-        if normals.shape[0] != self.normals.shape[0]:
-            raise ValueError("normals must match shape")
-        self.normals = normals
 class pointWithCov(BasedPoint):
     def __init__(self, points=None, covs=None, point_world=None):
         if covs is not None and covs.shape[1] != 3 and covs.shape[2] != 3:
@@ -171,26 +172,43 @@ class pointWithCov(BasedPoint):
         self.covs = torch.zeros((self.points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE) if covs is None else covs
         self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
 
-    def add_points(self, points, covs=None):
+    def add_points(self, points, covs=None, point_world=None):
         if not isinstance(points, torch.Tensor):
-            raise TypeError("must be a torch.Tensor")
+            raise TypeError("points must be a torch.Tensor")
         if points.shape[1] != 3:
-            raise ValueError("points must have shape (N, 3) for [x, y, z]")
-        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
-        if covs is not None:
+            raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        if covs is None:
+            covs = torch.zeros((points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE)
+        else:
             if not isinstance(covs, torch.Tensor):
-                raise TypeError("must be a torch.Tensor")
-            self.covs = torch.cat([self.covs, covs.to(device=DEVICE)], dim=0)
-    def add_point_world(self, point_world: torch.Tensor):
+                raise TypeError("covs must be a torch.Tensor")
+        if point_world is None:
+            point_world = torch.zeros((points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
+        else:
+            if not isinstance(point_world, torch.Tensor):
+                raise TypeError("point_world must be a torch.Tensor")
+        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.covs = torch.cat([self.covs, covs.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.point_world = torch.cat([self.point_world, point_world.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+
+    def update_point_world(self, point_world):
         if not isinstance(point_world, torch.Tensor):
-            raise TypeError("must be a torch.Tensor")
+            raise TypeError("curvature must be a torch.Tensor")
         if point_world.shape[1] != 3:
-            raise ValueError("point_world must have shape (N, 3) for [x, y, z]")
-        self.point_world = torch.cat([self.point_world, point_world.to(device=DEVICE)], dim=0)
+            raise ValueError("Each point_world must have 3 coordinates (nx, ny, nz)")
+        if point_world.shape[0] != self.point_world.shape[0]:
+            raise ValueError("point_world must match shape")
+        self.point_world = point_world
     
-    @property
-    def size(self):
-        return self.points.shape[0]
+    def update_covs(self, covs):
+        if not isinstance(covs, torch.Tensor):
+            raise TypeError("curvature must be a torch.Tensor")
+        if covs.shape[1] != 3 or covs.shape[2] != 3:
+            raise ValueError("Each covs shape must have 3x3")
+        if covs.shape[0] != self.covs.shape[0]:
+            raise ValueError("curvature must match shape")
+        self.covs = covs
+
 class MeasureGroup:
     def __init__(self):
         self.lidar_beg_time = 0.0
