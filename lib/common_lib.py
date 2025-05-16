@@ -76,16 +76,12 @@ class PointXYZI(PointXYZ):
         self.intensity = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if intensity is None else intensity
     
     def add_points(self, points, intensity=None):
-        if not isinstance(points, torch.Tensor):
-            raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 3:
-            raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        super().add_points(points=points)
         if intensity is None:
             intensity = torch.zeros((points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
         else:
             if not isinstance(intensity, torch.Tensor):
                 raise TypeError("intensity must be a torch.Tensor")
-        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.intensity = torch.cat([self.intensity, intensity.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
     def update_intensity(self, intensity):
@@ -114,15 +110,7 @@ class PointXYZINormal(PointXYZI):
         self.curvature = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if curvature is None else curvature
 
     def add_points(self, points, intensity=None, normals=None, curvature=None):
-        if not isinstance(points, torch.Tensor):
-            raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 3:
-            raise ValueError("Each point must have 3 coordinates (x, y, z)")
-        if intensity is None:
-            intensity = torch.zeros((points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-        else:
-            if not isinstance(intensity, torch.Tensor):
-                raise TypeError("intensity must be a torch.Tensor")
+        super().add_points(points=points, intensity=intensity)
         if normals is None:
             normals = torch.zeros((points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
         else:
@@ -133,8 +121,6 @@ class PointXYZINormal(PointXYZI):
         else:
             if not isinstance(curvature, torch.Tensor):
                 raise TypeError("curvature must be a torch.Tensor")
-        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
-        self.intensity = torch.cat([self.intensity, intensity.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.normals = torch.cat([self.normals, normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.curvature = torch.cat([self.curvature, curvature.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
@@ -146,7 +132,7 @@ class PointXYZINormal(PointXYZI):
         if normals.shape[0] != self.normals.shape[0]:
             raise ValueError("normals must match shape")
         self.normals = normals
-        
+
     def update_curvature(self, curvature):
         if not isinstance(curvature, torch.Tensor):
             raise TypeError("curvature must be a torch.Tensor")
@@ -164,6 +150,8 @@ class pointWithCov(BasedPoint):
             raise ValueError("Each point_world must have 3 coordinates (x, y, z)")
         if (covs is not None or point_world is not None) and points is None:
             raise TypeError(f"points is {points}") 
+        if points.shape[0] != point_world.shape[0]:
+            raise ValueError("point_world & points must match shape")
         super().__init__(points=points)
         if not isinstance(covs, torch.Tensor):
             raise TypeError("covs must be a torch.Tensor")
@@ -173,10 +161,7 @@ class pointWithCov(BasedPoint):
         self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
 
     def add_points(self, points, covs=None, point_world=None):
-        if not isinstance(points, torch.Tensor):
-            raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != 3:
-            raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        super().add_points(points=points)
         if covs is None:
             covs = torch.zeros((points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE)
         else:
@@ -187,7 +172,6 @@ class pointWithCov(BasedPoint):
         else:
             if not isinstance(point_world, torch.Tensor):
                 raise TypeError("point_world must be a torch.Tensor")
-        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.covs = torch.cat([self.covs, covs.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.point_world = torch.cat([self.point_world, point_world.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 

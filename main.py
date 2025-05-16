@@ -5,7 +5,7 @@ import torch
 from typing import Final, List, Dict
 import lib.common_lib as cl
 from lib.common_lib import StatesGroup, ImuProcess, \
-                            PointCloudXYZINormal, PointCloudXYZI, \
+                            PointXYZINormal, PointXYZI, \
                             MeasureGroup, Lidar_offset_to_IMU, \
                             TimestampUpdater # PointXYZINormal
 from lib import DIM_STATE
@@ -89,11 +89,11 @@ timer = None
 
 Measures = MeasureGroup()
 
-feats_undistort = PointCloudXYZINormal()
-feats_down_body = PointCloudXYZI()
-laserCloudOri = PointCloudXYZI()
-laserCloudNoeffect = PointCloudXYZI()
-lidar_buffer = PointCloudXYZINormal()
+feats_undistort = PointXYZI()
+feats_down_body = PointXYZI()
+laserCloudOri = PointXYZI()
+laserCloudNoeffect = PointXYZI()
+lidar_buffer = PointXYZINormal()
 
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
 # FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
