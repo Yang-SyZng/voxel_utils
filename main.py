@@ -186,20 +186,11 @@ def standard_pcl_cbk(msg):
     # 这里可以加上其他需要通知的操作（例如多线程通知等）
     # print(f"Received point cloud at time: {msg['header']['stamp']:.6f}")
 
-def pointBodyToWorld(pi: PointCloudXYZINormal, po: PointCloudXYZINormal):
-    p_body = pi.points[:, :3] + Lidar_offset_to_IMU
-    p_global = torch.matmul(state.rot_end, p_body) + state.pos_end
-    # 构造 intensity 列
-    intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-    curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-    # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
-    combined_tensor = torch.cat([
-        points_tensor,  # (N, 3) -> [x, y, z]
-        intensity,      # (N, 1) -> [intensity]
-        normals_tensor, # (N, 3) -> [nx, ny, nz]
-        curvature       # (N, 1) -> [curvature]
-    ], dim=1)  # 结果形状 (N, 8)
-    po.add_points(combined_tensor)
+def pointBodyToWorld(pi: torch.Tensor):
+    p_body = pi + Lidar_offset_to_IMU.squeeze(1)
+    # (3, 3) @ (3, 1) + (3, 1)
+    po = torch.einsum("ij,j->i", state.rot_end, p_body).unsqueeze(1) + state.pos_end
+
     return po
 
 def RotMtoEuler(rot_matrix):
@@ -447,12 +438,10 @@ def main(*args: Namespace):
 
             for iterCount in range(NUM_MAX_ITERATIONS):
                 # 初始化
-                laserCloudOri = []
+                laserCloudOri: List[torch.Tensor] = []
                 laserCloudNoeffect = []
-                corr_normvect = []
+                corr_normvect: List[List[torch.Tensor]] = []
                 total_residual: float = 0.0
-
-                ptpl_list = []
 
                 # 转换LiDAR
                 # 假设 transformLidar 已自定义或存在
@@ -475,51 +464,53 @@ def main(*args: Namespace):
                 var_list = cov
 
                 # 构建残差列表
-
-                # 假设 BuildResidualListOMP 已定义
-                ptpl_list, non_match_list = vx.BuildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
+                ptpl_list = vx.buildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
 
                 effct_feat_num = 0
                 total_residual = 0.0
 
-                for i in range(len(ptpl_list)):
-                    pi_body = ptpl_list[i]['point']
-                    pi_world = pointBodyToWorld(pi_body, state)  # 自定义实现
-                    pl = ptpl_list[i]['normal']
-
-                    # 计算距离
-                    dis = torch.dot(pi_world, pl) + ptpl_list[i]['d']
+                for pt in ptpl_list:
+                    # (3)
+                    pi_body = pt.point
+                    pi_world = pointBodyToWorld(pi_body)  # 自定义实现
+                    pl = pt.normal
                     effct_feat_num += 1
-                    total_residual += abs(dis)
-
-                    # 保存到对应容器
+                    dis = torch.dot(pi_world, pl) + pt.d
+                    effct_feat_num += 1
+                    pl_intensity = dis
                     laserCloudOri.append(pi_body)
-                    # 处理corr_normvect（法向量）等
-                    corr_normvect.append({'normal': pl, 'dis': dis})
+                    corr_normvect.append([pl, pl_intensity])
+                    total_residual += abs(dis)
 
                 res_mean_last = total_residual / effct_feat_num if effct_feat_num != 0 else 0
 
-                # 开始时间
-                t_solve_start = time.time()
 
                 # 计算Jacobian和测量向量
-                Hsub = torch.zeros(effct_feat_num, 6)
-                Hsub_T_R_inv = torch.zeros(6, effct_feat_num)
-                R_inv = torch.zeros(effct_feat_num)
-                meas_vec = torch.zeros(effct_feat_num)
+                Hsub = torch.zeros(effct_feat_num, 6, device=DEVICE, dtype=DOUBLE)
+                Hsub_T_R_inv = torch.zeros(6, effct_feat_num, device=DEVICE, dtype=DOUBLE)
+                R_inv = torch.zeros((effct_feat_num, 1), device=DEVICE, dtype=DOUBLE)
+                meas_vec = torch.zeros((effct_feat_num, 1), device=DEVICE, dtype=DOUBLE)
 
                 for i in range(effct_feat_num):
-                    laser_p = laserCloudOri[i]
-                    point_this = laser_p
-                    # 例如 calcBodyCov
+                    point_this = laserCloudOri[i].unsqueeze(0)
+                    
                     if calib_laser:
                         cov = vx.calcBodyCov(point_this, ranging_cov, CALIB_ANGLE_COV)
                     else:
                         cov = vx.calcBodyCov(point_this, ranging_cov, angle_cov)
+                    # (3, 3) (1, 3, 3) (3, 3)
+                    cov = state.rot_end @ cov.squeeze(0) @ state.rot_end.T
 
-                    cov = state_rot_end @ cov @ state_rot_end.T
-                    point_crossmat = crossmat_list[i]  # 需要提前定义
-                    norm_p = corr_normvect[i]['normal']
+                    # 计算叉积矩阵
+                    crossmat_list = torch.zeros(point_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
+                    crossmat_list[:, 0, 1] = -points_this[:, 2]
+                    crossmat_list[:, 0, 2] = points_this[:, 1]
+                    crossmat_list[:, 1, 0] = points_this[:, 2]
+                    crossmat_list[:, 1, 2] = -points_this[:, 0]
+                    crossmat_list[:, 2, 0] = -points_this[:, 1]
+                    crossmat_list[:, 2, 1] = points_this[:, 0]  # 形状 (N, 3, 3)
+
+                    norm_p = corr_normvect[i][1]
                     norm_vec = norm_p
                     # 转换点到世界坐标
                     point_world = state_rot_end @ point_this + state_pos_end

@@ -36,49 +36,6 @@ class Ptpl:
         self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         self.d: float = 0.0
         self.layer: int = 0
-
-# pointWithCov [x, y, z][covs]
-class pointWithCov:
-    def __init__(self, points: torch.Tensor=None, covs: torch.Tensor=None, point_world: torch.Tensor=None): # , curvature=None
-        if points is None or covs is None or point_world is None:
-            self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)  # (N, 3)
-            self.covs = torch.zeros((0, 3, 3), dtype=DOUBLE, device=DEVICE) # (N, 3, 3)
-            self.point_world = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE) # (N, 3)
-        else:
-            if not isinstance(points, torch.Tensor):
-                raise TypeError("must be a torch.Tensor")
-            if not isinstance(covs, torch.Tensor):
-                raise TypeError("must be a torch.Tensor")
-            if not isinstance(point_world, torch.Tensor):
-                raise TypeError("must be a torch.Tensor")
-            if points.shape[1] != 3:
-                raise ValueError("points must have shape (N, 3) for [x, y, z]")
-            
-            self.points = points.to(dtype=DOUBLE, device=DEVICE)
-            self.covs = covs.to(dtype=DOUBLE, device=DEVICE)
-            self.point_world = point_world.to(dtype=DOUBLE, device=DEVICE)
-
-    def add_points(self, points, covs=None):
-        if not isinstance(points, torch.Tensor):
-            raise TypeError("must be a torch.Tensor")
-        if points.shape[1] != 3:
-            raise ValueError("points must have shape (N, 3) for [x, y, z]")
-        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
-        if covs is not None:
-            if not isinstance(covs, torch.Tensor):
-                raise TypeError("must be a torch.Tensor")
-            self.covs = torch.cat([self.covs, covs.to(device=DEVICE)], dim=0)
-    def add_point_world(self, point_world: torch.Tensor):
-        if not isinstance(point_world, torch.Tensor):
-            raise TypeError("must be a torch.Tensor")
-        if point_world.shape[1] != 3:
-            raise ValueError("point_world must have shape (N, 3) for [x, y, z]")
-        self.point_world = torch.cat([self.point_world, point_world.to(device=DEVICE)], dim=0)
-    
-    @property
-    def size(self):
-        return self.points.shape[0]
-
 class Plane:
     def __init__(self):
         # 
@@ -346,73 +303,58 @@ class PointCloud:
 # Created by zty 2025/04/26
 def build_single_residual(pv: pointWithCov, current_octo: OctoTree,
                           current_layer: int, max_layer: int, sigma_num: float,
-                          is_success: List[bool], prob: List[float], single_ptpl_list: List[Ptpl]):
+                        is_success: bool, prob: float, single_ptpl: Ptpl):
     radius_k: float = 3.
-    p_w = pv.point_world #(N, 3)
-    N = p_w.shape[0]
+    p_w = pv.point_world #(3)
     
     if current_octo.plane_ptr.is_plane:
         plane = current_octo.plane_ptr_
         
-        # (N, 3) - (3,) -> (N, 3)
+        # (3) - (3) -> (3)
         p_world_to_center = p_w - plane.center
-        # # (N, 3) @ (3,) -> (N,)
-        # proj_x = torch.sum(p_world_to_center * plane.x_normal, dim=1)
-        # proj_y = torch.sum(p_world_to_center * plane.y_normal, dim=1)
-        # (N, 3) @ (3,) + scalar -> (N,)
-        dis_to_plane = torch.abs(
-            torch.sum(plane.normal * p_w, dim=1) + plane.d
-        )
-        # (N,)
+        # (3) @ (3) + d -> (1)
+        dis_to_plane = torch.abs(torch.sum(plane.normal * p_w, dim=1) + plane.d)
+        # (1)
         dis_to_center = torch.sum((plane.center - p_w) ** 2, dim=1)
-        # (N,)
+        # ()
         range_dis = torch.sqrt(dis_to_center - dis_to_plane ** 2)
-        # (N,)
-        mask_range = range_dis <= radius_k * plane.radius
-        if mask_range.any():
-            # (N, 3) and (3,) -> (N, 6)
-            J_nq = torch.cat([p_world_to_center, -plane.normal.expand(N, 3)], dim=1)
+        if range_dis <= radius_k * plane.radius:
+            # (3) and (3) -> (6)
+            J_nq = torch.cat([p_world_to_center, -plane.normal], dim=1)
             
-            # (N, 6) @ (6, 6) @ (N, 6).T -> (N,)
-            sigma_l = torch.einsum('ni,ij,nj->n', J_nq, plane.plane_cov, J_nq)
-            sigma_l += torch.sum(plane.normal * (pv.covs @ plane.normal), dim=1)
-            # Distance threshold mask: (N,)
-            mask_dis = dis_to_plane < sigma_num * torch.sqrt(sigma_l)
-            mask = mask_range & mask_dis
-            if mask.any():
-                # (N,)
+            # (6) @ (6, 6) @ (6).T -> (1)
+            sigma_l = torch.einsum('i,ij,j->', J_nq, plane.plane_cov, J_nq)
+            # (3).T @ (3, 3) @ (3) -> (1)
+            sigma_l += torch.einsum('i,ij,j->', plane.normal, pv.covs, plane.normal) 
+            if dis_to_plane < sigma_num * torch.sqrt(sigma_l):
+                is_success = True
                 this_prob = (1.0 / torch.sqrt(sigma_l)) * torch.exp(-0.5 * (dis_to_plane ** 2) / sigma_l)
-                # Update mask (N,)
-                update_mask = (this_prob > prob) & mask
-                if update_mask.any():
-                    is_success[update_mask] = True
-                    prob[update_mask] = this_prob[update_mask]
-                    indices = torch.where(update_mask)[0]
-                    for idx in indices:
-                        single_ptpl = single_ptpl_list[idx]
-                        single_ptpl.point = pv.points[idx].clone()
-                        single_ptpl.plane_cov = plane.plane_cov.clone()
-                        single_ptpl.normal = plane.normal.clone()
-                        single_ptpl.center = plane.center.clone()
-                        single_ptpl.d = plane.d
-                        single_ptpl.layer = current_layer
+                if this_prob > prob:
+                    prob = this_prob
+                    single_ptpl.point = pv.points
+                    single_ptpl.plane_cov = plane.plane_cov
+                    single_ptpl.normal = plane.normal
+                    single_ptpl.center = plane.center
+                    single_ptpl.d = plane.d
+                    single_ptpl.layer = current_layer
+                return is_success, prob, single_ptpl
     else:
-        # Recurse into child nodes if not at max layer
         if current_layer < max_layer:
             for leaf in current_octo.leaves_:
                 if leaf is not None:
-                    build_single_residual(pv, leaf, current_layer + 1,
-                                        max_layer, sigma_num, is_success, prob, single_ptpl_list)
-
+                    is_success, prob, single_ptpl = build_single_residual(pv, leaf, current_layer + 1,
+                                        max_layer, sigma_num, is_success, prob, single_ptpl)
+        return is_success, prob, single_ptpl
+    
 def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
                          voxel_size: float, sigma_num: float,
                          max_layer: int, 
-                         pv_list: pointWithCov):
-    # ptpl_list, non_match
+                         pv_list: pointWithCov) -> List[Ptpl]:
     # 用于存储最终的结果
     N = pv_list.size
     all_ptpl_list = [None] * N
     useful_ptpl = [False] * N
+    ptpl_list = []
     index = list(range(pv_list.size))
     mylock = threading.Lock()
 
@@ -443,18 +385,17 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
 
         # 对该体素内每个点单独调用build_single_residual
         for local_i, idx in enumerate(global_indices):
-            is_success = False
-            prob = 0.0
-            single_ptpl = None
+            is_success: bool = False
+            prob: float = 0.0
+            single_ptpl: Ptpl = None
             # 创建局部pv
             pv = pointWithCov()
             pv.points = pv_list.points[idx]
             pv.covs = pv_list.covs[idx]
             pv.point_world = pv_list.point_world[idx]
 
-            build_single_residual(pv,
-                                  current_octo, 0, max_layer, sigma_num,
-                                  is_success, prob, single_ptpl)
+            is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num,
+                                                                is_success, prob, single_ptpl)
             if not is_success:
                 # 尝试邻近体素
                 near_position = VOXEL_LOC(position.x, position.y, position.z)
@@ -475,17 +416,20 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
                     near_position.z -= 1
                 neighbor_octo = voxel_map[near_position]
                 if neighbor_octo:
-                    build_single_residual(pv,
-                                          neighbor_octo, 0, max_layer,
-                                          sigma_num, is_success, prob, single_ptpl)
+                    is_success, prob, single_ptpl = build_single_residual(pv, neighbor_octo, 0, max_layer,
+                                                    sigma_num, is_success, prob, single_ptpl)
             # 更新结果
             with mylock:
                 if is_success:
                     useful_ptpl[idx] = True
                     all_ptpl_list[idx] = single_ptpl
+                    ptpl_list.append(single_ptpl)
                 else:
                     useful_ptpl[idx] = False
-
+    return ptpl_list
+    # for i in range(N):
+    #     if useful_ptpl[i]:
+    #         ptpl_list.append(all_ptpl_list[i])
 
 def RotMtoEuler(rot: torch.Tensor) -> torch.Tensor:
     # rot: 3x3旋转矩阵

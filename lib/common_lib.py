@@ -37,42 +37,164 @@ Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 # PointCloudXYZI = PointCloudXYZINormal
 # PointXYZI = PointCloudXYZI
 # PointCloudXYZI [x, y, z, intensity]
-class BasedPointCloud:
-    def __init__(self, points=None, dim=3, description="[x, y, z]"):
-        self.dim = dim
-        self.description = description
+class BasedPoint:
+    def __init__(self, points=None):
+        if points.shape[1] != 3:
+                raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        self.points = points
         if points is None:
-            self.points = torch.zeros((0, dim), dtype=DOUBLE, device=DEVICE)
+            self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
         else:
             if not isinstance(points, torch.Tensor):
                 raise TypeError("points must be a torch.Tensor")
-            if points.shape[1] != dim:
-                raise ValueError(f"points must have shape (N, {dim}) for {description}")
             self.points = points.to(dtype=DOUBLE, device=DEVICE)
 
     def add_points(self, points):
         if not isinstance(points, torch.Tensor):
             raise TypeError("points must be a torch.Tensor")
-        if points.shape[1] != self.dim:
-            raise ValueError(f"points must have shape (N, {self.dim}) for {self.description}")
-        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
+        if points.shape[1] != 3:
+            raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+
     @property
     def size(self):
         return self.points.shape[0]
+
+class PointXYZ(BasedPoint):
+    def __init__(self, points=None):
+        super().__init__(points=points)
+
+class PointXYZI(PointXYZ):
+    def __init__(self, points=None, intensity=None):
+        if intensity is not None and intensity.shape[1] != 1:
+                raise ValueError("Each intensity must have 1 coordinates (intensity)")
+        if intensity is not None and points is None:
+            raise TypeError(f"points is {points}")
+        super().__init__(points=points)
+        if not isinstance(intensity, torch.Tensor):
+            raise TypeError("intensity must be a torch.Tensor")
+        self.intensity = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if intensity is None else intensity
     
-class PointCloudXYZ(BasedPointCloud):
-    def __init__(self, points=None):
-        super().__init__(points=points, dim=3, description="[x, y, z]")
-class PointCloudXYZI(BasedPointCloud):
-    def __init__(self, points=None):
-        super().__init__(points=points, dim=4, description="[x, y, z, intensity]")
-class PointCloudXYZINormal(BasedPointCloud):
-    def __init__(self, points=None):
-        super().__init__(points=points, dim=8, description="[x, y, z, intensity, nx, ny, nz, curvature]")
+    def add_points(self, points, intensity=None):
+        if not isinstance(points, torch.Tensor):
+            raise TypeError("points must be a torch.Tensor")
+        if points.shape[1] != 3:
+            raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        if intensity is None:
+            intensity = torch.zeros((points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+        else:
+            if not isinstance(intensity, torch.Tensor):
+                raise TypeError("intensity must be a torch.Tensor")
+        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.intensity = torch.cat([self.intensity, intensity.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+
+    def update_intensity(self, intensity):
+        if not isinstance(intensity, torch.Tensor):
+            raise TypeError("intensity must be a torch.Tensor")
+        if intensity.shape[1] != 1:
+            raise ValueError("Each intensity must have 1 coordinates (intensity)")
+        if intensity.shape[0] != self.intensity.shape[0]:
+            raise ValueError("Intensity must match shape")
+        self.intensity = intensity
+
+class PointXYZINormal(PointXYZI):
+    def __init__(self, points=None, intensity=None, normals=None, curvature=None):
+        if normals is not None and normals.shape[1] != 3:
+            raise ValueError("Each normals must have 3 coordinates (nx, ny, nz)")
+        if curvature is not None and curvature.shape[1] != 1:
+            raise ValueError("Each curvature must have 1 coordinates (curvature)")
+        if (normals is not None or curvature is not None) and points is None:
+            raise TypeError(f"points is {points}")
+        super().__init__(points=points, intensity=intensity)
+        if not isinstance(normals, torch.Tensor):
+            raise TypeError("normals must be a torch.Tensor")
+        if not isinstance(curvature, torch.Tensor):
+            raise TypeError("curvature must be a torch.Tensor")
+        self.normals = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if normals is None else normals
+        self.curvature = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if curvature is None else curvature
+
+    def add_points(self, points, intensity=None, normals=None, curvature=None):
+        if not isinstance(points, torch.Tensor):
+            raise TypeError("points must be a torch.Tensor")
+        if points.shape[1] != 3:
+            raise ValueError("Each point must have 3 coordinates (x, y, z)")
+        if intensity is None:
+            intensity = torch.zeros((points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+        else:
+            if not isinstance(intensity, torch.Tensor):
+                raise TypeError("intensity must be a torch.Tensor")
+        if normals is None:
+            normals = torch.zeros((points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
+        else:
+            if not isinstance(normals, torch.Tensor):
+                raise TypeError("normals must be a torch.Tensor")
+        if curvature is None:
+            curvature = torch.zeros((points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+        else:
+            if not isinstance(curvature, torch.Tensor):
+                raise TypeError("curvature must be a torch.Tensor")
+        self.points = torch.cat([self.points, points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.intensity = torch.cat([self.intensity, intensity.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.normals = torch.cat([self.normals, normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.curvature = torch.cat([self.curvature, curvature.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+
+    def update_curvature(self, curvature):
+        if not isinstance(curvature, torch.Tensor):
+            raise TypeError("curvature must be a torch.Tensor")
+        if curvature.shape[1] != 1:
+            raise ValueError("Each curvature must have 1 coordinates (nx, ny, nz)")
+        if curvature.shape[0] != self.curvature.shape[0]:
+            raise ValueError("curvature must match shape")
+        self.curvature = curvature
+    
+    def update_normals(self, normals):
+        if not isinstance(normals, torch.Tensor):
+            raise TypeError("normals must be a torch.Tensor")
+        if normals.shape[1] != 3:
+            raise ValueError("Each normals must have 1 coordinates (nx, ny, nz)")
+        if normals.shape[0] != self.normals.shape[0]:
+            raise ValueError("normals must match shape")
+        self.normals = normals
+class pointWithCov(BasedPoint):
+    def __init__(self, points=None, covs=None, point_world=None):
+        if covs is not None and covs.shape[1] != 3 and covs.shape[2] != 3:
+            raise ValueError("Each covs shape must have 3x3")
+        if point_world is not None and point_world.shape[1] != 3:
+            raise ValueError("Each point_world must have 3 coordinates (x, y, z)")
+        if (covs is not None or point_world is not None) and points is None:
+            raise TypeError(f"points is {points}") 
+        super().__init__(points=points)
+        if not isinstance(covs, torch.Tensor):
+            raise TypeError("covs must be a torch.Tensor")
+        if not isinstance(point_world, torch.Tensor):
+            raise TypeError("point_world must be a torch.Tensor")
+        self.covs = torch.zeros((self.points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE) if covs is None else covs
+        self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
+
+    def add_points(self, points, covs=None):
+        if not isinstance(points, torch.Tensor):
+            raise TypeError("must be a torch.Tensor")
+        if points.shape[1] != 3:
+            raise ValueError("points must have shape (N, 3) for [x, y, z]")
+        self.points = torch.cat([self.points, points.to(device=DEVICE)], dim=0)
+        if covs is not None:
+            if not isinstance(covs, torch.Tensor):
+                raise TypeError("must be a torch.Tensor")
+            self.covs = torch.cat([self.covs, covs.to(device=DEVICE)], dim=0)
+    def add_point_world(self, point_world: torch.Tensor):
+        if not isinstance(point_world, torch.Tensor):
+            raise TypeError("must be a torch.Tensor")
+        if point_world.shape[1] != 3:
+            raise ValueError("point_world must have shape (N, 3) for [x, y, z]")
+        self.point_world = torch.cat([self.point_world, point_world.to(device=DEVICE)], dim=0)
+    
+    @property
+    def size(self):
+        return self.points.shape[0]
 class MeasureGroup:
     def __init__(self):
         self.lidar_beg_time = 0.0
-        self.lidar = PointCloudXYZINormal()
+        self.lidar = PointXYZINormal()
         self.imu = []
         
 class StatesGroup:
