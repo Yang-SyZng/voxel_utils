@@ -410,75 +410,82 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
                          pv_list: pointWithCov):
     # ptpl_list, non_match
     # 用于存储最终的结果
-    all_ptpl_list = [None] * pv_list.size
-    useful_ptpl = [False] * pv_list.size
+    N = pv_list.size
+    all_ptpl_list = [None] * N
+    useful_ptpl = [False] * N
     index = list(range(pv_list.size))
     mylock = threading.Lock()
+
+    # 计算每个点所属的体素索引
     loc_xyz = pv.point_world / voxel_size # torch.Tensor (N, 3)
     loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
     loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
-    
+
+    # 找到唯一体素及逆索引
     loc_xyz_unique, inverse_indices = torch.unique(loc_xyz, dim=0, return_inverse=True)
     N_unique = loc_xyz_unique.shape[0]
+    
     print("residual voxel map size:", N_unique)
-    for i in range(N_unique):
-        voxel_idx = loc_xyz_unique[i]  # (3,)
+    
+    for u in range(N_unique):
+        # 找到属于该体素的所有点
+        mask = (inverse_indices == u)
+        global_indices = torch.nonzero(mask, as_tuple=False).view(-1).tolist()
+
+        voxel_idx = loc_xyz_unique[u]  # (3,)
         position = VOXEL_LOC(int(voxel_idx[0]), int(voxel_idx[1]), int(voxel_idx[2]))
         current_octo = voxel_map[position]
-        # 找到属于该体素的所有点
-        mask = (inverse_indices == i)
-        pv = pointWithCov()
-        pv.points = pv_list.points[mask]
-        pv.covs = pv_list.covs[mask]
-        pv.point_world = pv_list.point_world[mask]
-        single_ptpl: List[Ptpl]
-        is_success: List[bool] = False
-        prob: List[float] = 0.
-        build_single_residual(pv, current_octo, 0, max_layer, sigma_num, is_success, prob, single_ptpl)
-    
 
-    def process_idx(i):
-        pv = pv_list[i]
-        loc_xyz = pv['point_world'] / voxel_size
-        loc_xyz = torch.floor(loc_xyz)  # 取整
-        position = VOXEL_LOC(int(loc_xyz[0].item()), int(loc_xyz[1].item()), int(loc_xyz[2].item()))
-        if position in voxel_map:
-            current_octo = voxel_map[position]
-            single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
+        # if current_octo is None:
+        #     # 整个体素无OctoTree
+        #     non_match.extend(global_indices)
+        #     continue
+
+        # 对该体素内每个点单独调用build_single_residual
+        for local_i, idx in enumerate(global_indices):
             is_success = False
-            prob = 0
-            # 令 build_single_residual 返回值
-            is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
+            prob = 0.0
+            single_ptpl = None
+            # 创建局部pv
+            pv = pointWithCov()
+            pv.points = pv_list.points[idx]
+            pv.covs = pv_list.covs[idx]
+            pv.point_world = pv_list.point_world[idx]
+
+            build_single_residual(pv,
+                                  current_octo, 0, max_layer, sigma_num,
+                                  is_success, prob, single_ptpl)
             if not is_success:
-                near_position = position.copy()
-                # 根据子区间偏移near_position
-                for axis in range(3):
-                    center = current_octo.voxel_center_[axis]
-                    quarter_length = current_octo.quater_length_
-                    if loc_xyz[axis] > center + quarter_length:
-                        near_position[axis] += 1
-                    elif loc_xyz[axis] < center - quarter_length:
-                        near_position[axis] -= 1
-                if near_position in voxel_map:
-                    near_octo = voxel_map[near_position]
-                    is_success, prob, single_ptpl = build_single_residual(pv, near_octo, 0, max_layer, sigma_num)
-            if is_success:
-                with mylock:
-                    useful_ptpl[i] = True
-                    all_ptpl_list[i] = single_ptpl
+                # 尝试邻近体素
+                near_position = VOXEL_LOC(position.x, position.y, position.z)
+                cx, cy, cz = current_octo.voxel_center_
+                q = current_octo.quater_length_
+                x, y, z = loc_xyz[idx]
+                if x > cx + q:
+                    near_position.x += 1
+                elif x < cx - q:
+                    near_position.x -= 1
+                if y > cy + q:
+                    near_position.y += 1
+                elif y < cy - q:
+                    near_position.y -= 1
+                if z > cz + q:
+                    near_position.z += 1
+                elif z < cz - q:
+                    near_position.z -= 1
+                neighbor_octo = voxel_map[near_position]
+                if neighbor_octo:
+                    build_single_residual(pv,
+                                          neighbor_octo, 0, max_layer,
+                                          sigma_num, is_success, prob, single_ptpl)
+            # 更新结果
+            with mylock:
+                if is_success:
+                    useful_ptpl[idx] = True
+                    all_ptpl_list[idx] = single_ptpl
+                else:
+                    useful_ptpl[idx] = False
 
-    threads = []
-    for i in range(len(pv_list)):
-        t = threading.Thread(target=process_idx, args=(i,))
-        t.start()
-        threads.append(t)
-    for t in threads:
-        t.join()
-
-    # 收集有效的
-    for i, valid in enumerate(useful_ptpl):
-        if valid:
-            ptpl_list.append(all_ptpl_list[i])
 
 def RotMtoEuler(rot: torch.Tensor) -> torch.Tensor:
     # rot: 3x3旋转矩阵
