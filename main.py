@@ -68,8 +68,8 @@ solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
 G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 H_T_H = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 I_STATE = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
-rot_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-t_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+rot_add = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+t_add = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
 state_propagat = None
 state = None
 corr_normvect = []
@@ -226,7 +226,7 @@ def main(*args: Namespace):
     
     # imu params, current version does not support imu
     imu_en = args.imu_en
-    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE).reshape(3, 1)
+    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE).reshape(3)
     extrinR = torch.tensor(args.extrinsic_R, dtype=DOUBLE, device=DEVICE).reshape(3, 3)
     
     # mapping algorithm params
@@ -274,8 +274,8 @@ def main(*args: Namespace):
     I_STATE = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
     
     # rot_add, t_add: 3D 向量 (3x1)
-    rot_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-    t_add = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+    rot_add = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+    t_add = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
     state_propagat = StatesGroup()
     state = StatesGroup()
     # pointOri = PointXYZINormal()
@@ -301,6 +301,7 @@ def main(*args: Namespace):
     p_imu.imu_en = imu_en
     extT = extrinT.clone()
     extR = extrinR.clone()
+    
     p_imu.set_extrinsic(transl=extT, rot=extR)
 
     print("use imu") if imu_en else print("no imu")
@@ -357,7 +358,7 @@ def main(*args: Namespace):
                 covs = vx.calcBodyCov(points_this, ranging_cov, angle_cov)  # 形状 (N, 3, 3)
                 
                 # 协方差传播到世界坐标系
-                points_this = points_this + Lidar_offset_to_IMU.T  # 形状 (N, 3)
+                points_this = points_this + Lidar_offset_to_IMU.view(3, 1).T  # 形状 (N, 3)
                 
                 # 计算叉积矩阵
                 point_crossmat = torch.zeros(points_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
@@ -405,7 +406,8 @@ def main(*args: Namespace):
                     
                 init_map = True
                 scanIdx += 1
-                print("执行完成！")
+                
+                print("编译通过！")
                 exit(-1)
                 continue
             

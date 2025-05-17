@@ -115,8 +115,8 @@ class OctoTree:
         
         self.plane_ptr_.plane_cov = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         self.plane_ptr_.covariance = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
-        self.plane_ptr_.center = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-        self.plane_ptr_.normal = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.center = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.normal = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
         self.plane_ptr_.points_size = points.points.shape[0]
         self.plane_ptr_.radius = 0
         
@@ -142,9 +142,9 @@ class OctoTree:
         evals_min = torch.argmin(evals)
         evals_max = torch.argmax(evals)
         evals_mid = 3 - evals_min - evals_max
-        evec_min = evecs[:, evals_min].reshape(3, 1)
-        evec_mid = evecs[:, evals_mid].reshape(3, 1)
-        evec_max = evecs[:, evals_max].reshape(3, 1)
+        evec_min = evecs[:, evals_min]
+        evec_mid = evecs[:, evals_mid]
+        evec_max = evecs[:, evals_max]
         
         # 平面协方差计算（保持不变）
         J_Q = torch.tensor([[1.0 / N, 0.0, 0.0],
@@ -156,8 +156,10 @@ class OctoTree:
             for m in range(3):
                 if m != evals_min:
                     denom = (evals[evals_min] - evals[m]) * N
-                    evec_m = evecs[:, m].reshape(3, 1)
-                    term = evec_m @ evec_min.T + evec_min @ evec_m.T
+                    evec_m = evecs[:, m]
+                    # (3, 1) @ (1, 3) + (3, 1) @ (1, 3)
+                    term = evec_m.view(3, 1) @ evec_min.view(3, 1).T + \
+                           evec_min.view(3, 1) @ evec_m.view(3, 1).T
                     # (N, 1, 3) @ (3, 3) -> (N, 1, 3)
                     F_m = (centered_points.unsqueeze(1) / denom) @ term  # (N, 1, 3)
                     F[:, m, :] = F_m.squeeze(1)  # (N, 3)
@@ -490,7 +492,7 @@ def pubVoxelMap(voxel_map: Dict[VOXEL_LOC, OctoTree], pub_max_voxel_layer: int):
     #     plane_cov_trace *= (1.0 / max_trace)
     #     plane_cov_trace = plane_cov_trace ** pow_num
     #     r, g, b = mapJet(plane_cov_trace, 0, 1)
-    #     plane_rgb = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+    #     plane_rgb = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
     #     plane_rgb[0] = r / 256.0, plane_rgb[1] = g / 256.0, plane_rgb[2] = b / 256.0
     #     alpha = use_alpha if pub_plane.is_plane else alpha = 0
     #     pubSinglePlane(voxel_map, "plane", pub_plane, alpha, plane_rgb)
@@ -568,7 +570,7 @@ def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZ
     Transform points from LiDAR frame to world frame.
 
     Args:
-        state (StatesGroup): State object with rot_end (3, 3) and pos_end (3, 1).
+        state (StatesGroup): State object with rot_end (3, 3) and pos_end (3).
         input_cloud: List of PointCloudXYZI objects
 
     Returns:
@@ -580,13 +582,12 @@ def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZ
 
     # state.rot_end 和 state.pos_end 已经是张量
     rot_end = state.rot_end  # 形状 (3, 3)
-    pos_end = state.pos_end  # 形状 (3, 1)
+    pos_end = state.pos_end  # 形状 (3)
 
     # 变换：world = rot_end @ lidar + pos_end
     #               (3, 3)   (3, N) + (3, 1)
     
-    points_world = (rot_end @ points_lidar.T + pos_end).T  # 形状 (N, 3)
-    
+    points_world = (rot_end @ points_lidar.T + pos_end.unsqueeze(1)).T  # 形状 (N, 3)
     # 创建输出点云列表
     trans_cloud = PointXYZI()
     trans_cloud.add_points(points=points_world)

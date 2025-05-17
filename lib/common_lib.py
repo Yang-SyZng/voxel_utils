@@ -16,12 +16,11 @@ import threading
 MAX_INI_COUNT = 200
 Eye3d = torch.eye(3, dtype=DOUBLE, device=DEVICE)
 Eye3f = torch.eye(3, dtype=FLOAT64, device=DEVICE)
-Zero3d = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-Zero3f = torch.zeros((3, 1), dtype=FLOAT64, device=DEVICE)
-Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+Zero3d = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+Zero3f = torch.zeros(3, dtype=FLOAT64, device=DEVICE)
+Lidar_offset_to_IMU = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
 G_m_s2 = 9.81  # 重力加速度
-Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-# Vector3d shape(3, 1)
+# Vector3d shape(3)
 # Matrix3d shape(3, 3)
 
 #   CCCCCCCCC\    LL\            AAAAAAAA\      SSSSSSSS\     SSSSSSSS\     EEEEEEEEEEE\  SSSSSSSS\
@@ -231,11 +230,11 @@ class StatesGroup:
         """
         new_state = StatesGroup()
         new_state.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
-        new_state.pos_end = self.pos_end + state_add[3: 6].reshape(3, 1)
-        new_state.vel_end = self.vel_end + state_add[6: 9].reshape(3, 1)
-        new_state.bias_g = self.bias_g + state_add[9: 12].reshape(3, 1)
-        new_state.bias_a = self.bias_a + state_add[12: 15].reshape(3, 1)
-        new_state.gravity = self.gravity + state_add[15: 18].reshape(3, 1)
+        new_state.pos_end = self.pos_end + state_add[3: 6].reshape(3)
+        new_state.vel_end = self.vel_end + state_add[6: 9].reshape(3)
+        new_state.bias_g = self.bias_g + state_add[9: 12].reshape(3)
+        new_state.bias_a = self.bias_a + state_add[12: 15].reshape(3)
+        new_state.gravity = self.gravity + state_add[15: 18].reshape(3)
         new_state.cov = self.cov
         return new_state
 
@@ -250,11 +249,11 @@ class StatesGroup:
             StatesGroup: Self with updated values.
         """
         self.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
-        self.pos_end += state_add[3:6].reshape(3, 1)
-        self.vel_end += state_add[6:9].reshape(3, 1)
-        self.bias_g += state_add[9:12].reshape(3, 1)
-        self.bias_a += state_add[12:15-DIM_STATE].reshape(3, 1)
-        self.gravity += state_add[15:18].reshape(3, 1)
+        self.pos_end += state_add[3:6].reshape(3)
+        self.vel_end += state_add[6:9].reshape(3)
+        self.bias_g += state_add[9:12].reshape(3)
+        self.bias_a += state_add[12:15-DIM_STATE].reshape(3)
+        self.gravity += state_add[15:18].reshape(3)
 
         return self
 
@@ -285,8 +284,8 @@ class StatesGroup:
         Reset pose-related states to zero.
         """
         self.rot_end = torch.eye(3, dtype=DOUBLE, device=DEVICE)
-        self.pos_end = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-        self.vel_end = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        self.pos_end = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+        self.vel_end = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
 
 class ImuProcess:
     def __init__(self):
@@ -335,8 +334,8 @@ class ImuProcess:
             N (int): IMU 数据计数器。
         """
 
-        cur_acc = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
-        cur_gyr = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
+        cur_acc = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
+        cur_gyr = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
 
         if self.b_first_frame_:
             self.Reset()
@@ -392,12 +391,12 @@ class ImuProcess:
             self.Lid_rot_to_IMU = T[:3, :3]
         
         elif transl is not None and rot is None:
-            assert transl.shape == (3, 1), "transl must be 3D vector"
+            assert transl.shape == (3, ), "transl must be 3D vector"
             self.Lid_offset_to_IMU = transl
             self.Lid_rot_to_IMU = Eye3d.clone()
         
         elif transl is not None and rot is not None:
-            assert transl.shape == (3, 1), "transl must be 3D vector"
+            assert transl.shape == (3, ), "transl must be 3D vector"
             assert rot.shape == (3,3), "rot must be 3x3 matrix"
             self.Lid_offset_to_IMU = transl
             self.Lid_rot_to_IMU = rot
@@ -576,7 +575,7 @@ def Exp(*args) -> torch.Tensor:
     elif len(args) == 3:
         # Exp(v1, v2, v3)
         v1, v2, v3 = args
-        v = torch.tensor([v1, v2, v3], dtype=DOUBLE, device=DEVICE).reshape(3, 1)
+        v = torch.tensor([v1, v2, v3], dtype=DOUBLE, device=DEVICE).reshape(3)
         norm = torch.norm(v)
         if norm > 1e-5:
             r_ang = v / norm
@@ -612,7 +611,7 @@ def Log(R: torch.Tensor) -> torch.Tensor:
         R[2, 1] - R[1, 2],
         R[0, 2] - R[2, 0],
         R[1, 0] - R[0, 1]
-    ], dtype=DOUBLE, device=DEVICE).reshape(3, 1)
+    ], dtype=DOUBLE, device=DEVICE).reshape(3)
 
     # 根据 theta 大小选择返回结果
     if torch.abs(theta) < 0.001:
