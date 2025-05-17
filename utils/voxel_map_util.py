@@ -1,6 +1,6 @@
 import torch
 from typing import List, Optional, Dict
-from lib.common_lib import StatesGroup, PointCloudXYZINormal, PointCloudXYZI, PointCloudXYZ, BasedPointCloud
+from lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, PointXYZ, pointWithCov
 from utils import DOUBLE, DEVICE
 import open3d as o3d
 import numpy as np
@@ -86,7 +86,7 @@ class OctoTree:
                  max_cov_points_size: int, 
                  planer_threshold: float):
         self.temp_points_ = pointWithCov()
-        self.new_points_ = PointCloudXYZ()
+        self.new_points_ = PointXYZ()
         self.plane_ptr_: Plane = Plane()
         self.max_layer_: int = max_layer
         self.layer_: int = layer
@@ -245,7 +245,7 @@ class OctoTree:
         for leafnum in torch.unique(leafnums):
             leafnum_int: int = leafnum.item()
             mask = (leafnums == leafnum_int)  # 筛选属于当前子节点的点
-            points_in_leaf = pointWithCov(self.temp_points_.points[mask], covs=self.temp_points_.covs[mask])
+            points_in_leaf = pointWithCov(points=self.temp_points_.points[mask], covs=self.temp_points_.covs[mask])
             if self.leaves_[leafnum_int] is None:
                 self.leaves_[leafnum_int] = OctoTree(
                     max_layer=self.max_layer_,
@@ -445,7 +445,7 @@ def RotMtoEuler(rot: torch.Tensor) -> torch.Tensor:
         z = torch.tensor(0.0)
     return torch.stack([x, y, z])  # 返回欧拉角（roll, pitch, yaw）
 
-def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float = 0.05) -> PointCloudXYZINormal:
+def downsample_point_cloud(input_cloud: PointXYZINormal, voxel_size: float = 0.05) -> PointXYZINormal:
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(input_cloud.points[:, :3].clone().cpu().numpy())
     down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
@@ -454,7 +454,7 @@ def downsample_point_cloud(input_cloud: PointCloudXYZINormal, voxel_size: float 
     intensity = torch.zeros((down_points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
     curvature = torch.zeros((down_points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
     normals_tensor = torch.zeros((down_points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
-    return PointCloudXYZINormal(
+    return PointXYZINormal(
         points=torch.cat([
                 down_points,  # (N, 3) -> [x, y, z]
                 intensity,      # (N, 1) -> [intensity]
@@ -563,7 +563,7 @@ def buildVoxelMap(input_points: pointWithCov,
     # exit(-1)
     return feat_map
 
-def transformLidar(state: StatesGroup, input_cloud: PointCloudXYZINormal) -> PointCloudXYZI:
+def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZI:
     """
     Transform points from LiDAR frame to world frame.
 
@@ -575,8 +575,8 @@ def transformLidar(state: StatesGroup, input_cloud: PointCloudXYZINormal) -> Poi
         list: List of PointCloudXYZI objects in world frame.
     """
     # 提取点云的 x, y, z 和 intensity
-    points_lidar = input_cloud.points[:, :3]  # 形状 (N, 3)
-    intensities = input_cloud.points[:, 3].reshape(-1, 1)  # 形状 (N, 1)
+    points_lidar = input_cloud.points  # 形状 (N, 3)
+    intensities = input_cloud.intensity
 
     # state.rot_end 和 state.pos_end 已经是张量
     rot_end = state.rot_end  # 形状 (3, 3)
@@ -588,12 +588,8 @@ def transformLidar(state: StatesGroup, input_cloud: PointCloudXYZINormal) -> Poi
     points_world = (rot_end @ points_lidar.T + pos_end).T  # 形状 (N, 3)
     
     # 创建输出点云列表
-    trans_cloud = PointCloudXYZI()
-    points = torch.cat([
-                points_world,  # (N, 3) -> [x, y, z]
-                intensities,      # (N, 1) -> [intensity]
-                ], dim=1)  # 结果形状 (N, 4)
-    trans_cloud.add_points(points)
+    trans_cloud = PointXYZI()
+    trans_cloud.add_points(points=points_world)
     
     return trans_cloud
 

@@ -39,15 +39,15 @@ Lidar_offset_to_IMU = torch.zeros((3, 1), dtype=DOUBLE, device=DEVICE)
 # PointCloudXYZI [x, y, z, intensity]
 class BasedPoint:
     def __init__(self, points=None):
-        if points.shape[1] != 3:
-                raise ValueError("Each point must have 3 coordinates (x, y, z)")
-        self.points = points
-        if points is None:
-            self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
-        else:
+        if points is not None:
             if not isinstance(points, torch.Tensor):
                 raise TypeError("points must be a torch.Tensor")
-            self.points = points.to(dtype=DOUBLE, device=DEVICE)
+            if points.shape[1] != 3:
+                raise ValueError("Each point must have 3 coordinates (x, y, z)")
+            self.points = points
+        else:
+            self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+            
 
     def add_points(self, points):
         if not isinstance(points, torch.Tensor):
@@ -66,13 +66,14 @@ class PointXYZ(BasedPoint):
 
 class PointXYZI(PointXYZ):
     def __init__(self, points=None, intensity=None):
-        if intensity is not None and intensity.shape[1] != 1:
+        if intensity is not None:
+            if intensity.shape[1] != 1:
                 raise ValueError("Each intensity must have 1 coordinates (intensity)")
-        if intensity is not None and points is None:
-            raise TypeError(f"points is {points}")
+            if points is None:
+                raise TypeError(f"points is {points}")
+            if not isinstance(intensity, torch.Tensor):
+                raise TypeError("intensity must be a torch.Tensor")
         super().__init__(points=points)
-        if not isinstance(intensity, torch.Tensor):
-            raise TypeError("intensity must be a torch.Tensor")
         self.intensity = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if intensity is None else intensity
     
     def add_points(self, points, intensity=None):
@@ -95,17 +96,20 @@ class PointXYZI(PointXYZ):
 
 class PointXYZINormal(PointXYZI):
     def __init__(self, points=None, intensity=None, normals=None, curvature=None):
-        if normals is not None and normals.shape[1] != 3:
-            raise ValueError("Each normals must have 3 coordinates (nx, ny, nz)")
-        if curvature is not None and curvature.shape[1] != 1:
-            raise ValueError("Each curvature must have 1 coordinates (curvature)")
+        if normals is not None:
+            if normals.shape[1] != 3:
+                raise ValueError("Each normals must have 3 coordinates (nx, ny, nz)")
+            if not isinstance(normals, torch.Tensor):
+                raise TypeError("normals must be a torch.Tensor")
+        if curvature is not None:
+            if curvature.shape[1] != 1:
+                raise ValueError("Each curvature must have 1 coordinates (curvature)")
+            if not isinstance(curvature, torch.Tensor):
+                raise TypeError("curvature must be a torch.Tensor")
         if (normals is not None or curvature is not None) and points is None:
             raise TypeError(f"points is {points}")
         super().__init__(points=points, intensity=intensity)
-        if not isinstance(normals, torch.Tensor):
-            raise TypeError("normals must be a torch.Tensor")
-        if not isinstance(curvature, torch.Tensor):
-            raise TypeError("curvature must be a torch.Tensor")
+        
         self.normals = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if normals is None else normals
         self.curvature = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if curvature is None else curvature
 
@@ -144,19 +148,21 @@ class PointXYZINormal(PointXYZI):
     
 class pointWithCov(BasedPoint):
     def __init__(self, points=None, covs=None, point_world=None):
-        if covs is not None and covs.shape[1] != 3 and covs.shape[2] != 3:
-            raise ValueError("Each covs shape must have 3x3")
-        if point_world is not None and point_world.shape[1] != 3:
-            raise ValueError("Each point_world must have 3 coordinates (x, y, z)")
+        if covs is not None:
+            if covs.shape[1] != 3 and covs.shape[2] != 3:
+                raise ValueError("Each covs shape must have 3x3")
+            if not isinstance(covs, torch.Tensor):
+                raise TypeError("covs must be a torch.Tensor")
+        if point_world is not None:
+            if point_world.shape[1] != 3:
+                raise ValueError("Each point_world must have 3 coordinates (x, y, z)")
+            if not isinstance(point_world, torch.Tensor):
+                raise TypeError("point_world must be a torch.Tensor")
         if (covs is not None or point_world is not None) and points is None:
             raise TypeError(f"points is {points}") 
-        if points.shape[0] != point_world.shape[0]:
+        if (points is not None and point_world is not None) and points.shape[0] != point_world.shape[0]:
             raise ValueError("point_world & points must match shape")
         super().__init__(points=points)
-        if not isinstance(covs, torch.Tensor):
-            raise TypeError("covs must be a torch.Tensor")
-        if not isinstance(point_world, torch.Tensor):
-            raise TypeError("point_world must be a torch.Tensor")
         self.covs = torch.zeros((self.points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE) if covs is None else covs
         self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
 
@@ -428,15 +434,15 @@ class ImuProcess:
             dt = 0.1
             self.b_first_frame_ = False
             self.time_last_scan_ = pcl_beg_time
-            print("测试", pcl_beg_time)
+            # print("测试", pcl_beg_time)
         else:
             # dt = pcl_beg_time - self.time_last_scan_
             dt = 5.
             self.time_last_scan_ = pcl_beg_time
-            print("测试时间戳，dt", self.time_last_scan_, dt)
+            # print("测试时间戳，dt", self.time_last_scan_, dt)
 
         Exp_f = Exp(state_inout.bias_g, dt)  # 使用新的 Exp 函数
-        print("Exp_f", Exp_f)
+        # print("Exp_f", Exp_f)
         F_x = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
         cov_w = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 

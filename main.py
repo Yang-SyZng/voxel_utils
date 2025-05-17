@@ -89,7 +89,7 @@ timer = None
 
 Measures = MeasureGroup()
 
-feats_undistort = PointXYZI()
+feats_undistort = PointXYZINormal()
 feats_down_body = PointXYZI()
 laserCloudOri = PointXYZI()
 laserCloudNoeffect = PointXYZI()
@@ -146,21 +146,10 @@ def sync_packages(meas: MeasureGroup):
         # 确保输入张量形状匹配
         if points_tensor.shape != normals_tensor.shape or points_tensor.shape[1] != 3:
             raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
-        # 构造 intensity 列
-        intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-        curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-        # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
-        combined_tensor = torch.cat([
-            points_tensor,  # (N, 3) -> [x, y, z]
-            intensity,      # (N, 1) -> [intensity]
-            normals_tensor, # (N, 3) -> [nx, ny, nz]
-            curvature       # (N, 1) -> [curvature]
-        ], dim=1)  # 结果形状 (N, 7)
-        # 一次性添加到 meas.lidar
-        meas.lidar.add_points(combined_tensor)
+        meas.lidar.add_points(points=points_tensor)
         # meas.lidar_beg_time = time_buffer
         meas.lidar_beg_time = timer.timestamp.toSec()
-        print(f"sync_packages:{meas.lidar_beg_time}")
+        # print(f"sync_packages:{meas.lidar_beg_time}")
         return True
     return False
 
@@ -185,12 +174,25 @@ def standard_pcl_cbk(msg):
 
     # 这里可以加上其他需要通知的操作（例如多线程通知等）
     # print(f"Received point cloud at time: {msg['header']['stamp']:.6f}")
+    
+def buildResidualListOMP(voxel_map, max_voxel_size, threshold, max_layer, pv_list, ptpl_list, non_match_list):
+    # 构建残差列表
+    pass
 
-def pointBodyToWorld(pi: torch.Tensor):
-    p_body = pi + Lidar_offset_to_IMU.squeeze(1)
-    # (3, 3) @ (3, 1) + (3, 1)
-    po = torch.einsum("ij,j->i", state.rot_end, p_body).unsqueeze(1) + state.pos_end
-
+def pointBodyToWorld(pi: PointXYZINormal, po: PointXYZINormal):
+    p_body = pi.points[:, :3] + Lidar_offset_to_IMU
+    p_global = torch.matmul(state.rot_end, p_body) + state.pos_end
+    # 构造 intensity 列
+    intensity = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+    curvature = torch.zeros((points_tensor.shape[0], 1), dtype=DOUBLE, device=DEVICE)
+    # 合并 points_tensor, intensity 和 normals_tensor 成形状 (N, 7)
+    combined_tensor = torch.cat([
+        points_tensor,  # (N, 3) -> [x, y, z]
+        intensity,      # (N, 1) -> [intensity]
+        normals_tensor, # (N, 3) -> [nx, ny, nz]
+        curvature       # (N, 1) -> [curvature]
+    ], dim=1)  # 结果形状 (N, 8)
+    po.add_points(combined_tensor)
     return po
 
 def RotMtoEuler(rot_matrix):
@@ -322,7 +324,7 @@ def main(*args: Namespace):
             # for row in state.cov:
             #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
             state, feats_undistort = p_imu.Process(Measures, state)
-            print(state.cov)
+            # print(state.cov)
             # print(feats_undistort.points[:5])
             # for row in state.cov:
             #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
@@ -345,10 +347,10 @@ def main(*args: Namespace):
                 # "for" change to "Batch" start
                 #
                 # 提取 feats_undistort 的点 (LiDAR 坐标系)
-                points_this = feats_undistort.points[:, :3]  # 形状 (N, 3)
+                points_this = feats_undistort.points  # 形状 (N, 3)
 
                 # 提取 world_lidar 的点 (世界坐标系)
-                points_world = world_lidar.points[:, :3] # 形状 (N, 3)
+                points_world = world_lidar.points # 形状 (N, 3)
                 # 如果 z=0，设置为 0.001
                 points_this[:, 2] = torch.where(points_this[:, 2] == 0, 0.001, points_this[:, 2])
                 # 计算协方差
@@ -381,10 +383,9 @@ def main(*args: Namespace):
                 term3 = cov_pos.unsqueeze(0).expand(N, -1, -1)  # (N, 3, 3)
                 covs = term1 + term2 + term3  # 形状 (N, 3, 3)
                 
-                
                 # 创建 pv_list
                 pv_list = pointWithCov()
-                pv_list.add_points(points_world, covs)
+                pv_list.add_points(points=points_world, covs=covs)
 
                 # 计算标准差
                 sigma_pv = torch.diagonal(covs, dim1=1, dim2=2)  # 形状 (N, 3)
@@ -404,6 +405,8 @@ def main(*args: Namespace):
                     
                 init_map = True
                 scanIdx += 1
+                print("执行完成！")
+                exit(-1)
                 continue
             
             
@@ -438,10 +441,13 @@ def main(*args: Namespace):
 
             for iterCount in range(NUM_MAX_ITERATIONS):
                 # 初始化
-                laserCloudOri: List[torch.Tensor] = []
+                laserCloudOri = []
                 laserCloudNoeffect = []
-                corr_normvect: List[List[torch.Tensor]] = []
+                corr_normvect = []
                 total_residual: float = 0.0
+
+                r_list = []
+                ptpl_list = []
 
                 # 转换LiDAR
                 # 假设 transformLidar 已自定义或存在
@@ -450,8 +456,8 @@ def main(*args: Namespace):
                 pv_list = pointWithCov()
                 
                 world_lidar = vx.transformLidar(state, feats_down_body)
-                pv_list.points = feats_down_body.points[:, :3]
-                pv_list.point_world = world_lidar.points[:, :3]
+                pv = pointWithCov(points=feats_down_body.points[:, :3])
+                pv.add_point_world(world_lidar.points[:, :3])
                 cov = body_var.clone()
                 point_crossmat = crossmat_list.clone()
                 rot_var = state.cov[:, :3, :3]
@@ -460,57 +466,56 @@ def main(*args: Namespace):
                 cov = state.rot_end * cov * state.rot_end.T + \
                         (-point_crossmat) * rot_var * (-point_crossmat.T) + \
                         t_var
-                pv_list.covs = cov
+                pv.covs = cov
+                pv_list = pv
                 var_list = cov
 
                 # 构建残差列表
-                ptpl_list = vx.buildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
+
+                # 假设 BuildResidualListOMP 已定义
+                ptpl_list, non_match_list = vx.BuildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
 
                 effct_feat_num = 0
                 total_residual = 0.0
 
-                for pt in ptpl_list:
-                    # (3)
-                    pi_body = pt.point
-                    pi_world = pointBodyToWorld(pi_body)  # 自定义实现
-                    pl = pt.normal
+                for i in range(len(ptpl_list)):
+                    pi_body = ptpl_list[i]['point']
+                    pi_world = pointBodyToWorld(pi_body, state)  # 自定义实现
+                    pl = ptpl_list[i]['normal']
+
+                    # 计算距离
+                    dis = torch.dot(pi_world, pl) + ptpl_list[i]['d']
                     effct_feat_num += 1
-                    dis = torch.dot(pi_world, pl) + pt.d
-                    effct_feat_num += 1
-                    pl_intensity = dis
-                    laserCloudOri.append(pi_body)
-                    corr_normvect.append([pl, pl_intensity])
                     total_residual += abs(dis)
+
+                    # 保存到对应容器
+                    laserCloudOri.append(pi_body)
+                    # 处理corr_normvect（法向量）等
+                    corr_normvect.append({'normal': pl, 'dis': dis})
 
                 res_mean_last = total_residual / effct_feat_num if effct_feat_num != 0 else 0
 
+                # 开始时间
+                t_solve_start = time.time()
 
                 # 计算Jacobian和测量向量
-                Hsub = torch.zeros(effct_feat_num, 6, device=DEVICE, dtype=DOUBLE)
-                Hsub_T_R_inv = torch.zeros(6, effct_feat_num, device=DEVICE, dtype=DOUBLE)
-                R_inv = torch.zeros((effct_feat_num, 1), device=DEVICE, dtype=DOUBLE)
-                meas_vec = torch.zeros((effct_feat_num, 1), device=DEVICE, dtype=DOUBLE)
+                Hsub = torch.zeros(effct_feat_num, 6)
+                Hsub_T_R_inv = torch.zeros(6, effct_feat_num)
+                R_inv = torch.zeros(effct_feat_num)
+                meas_vec = torch.zeros(effct_feat_num)
 
                 for i in range(effct_feat_num):
-                    point_this = laserCloudOri[i].unsqueeze(0)
-                    
+                    laser_p = laserCloudOri[i]
+                    point_this = laser_p
+                    # 例如 calcBodyCov
                     if calib_laser:
                         cov = vx.calcBodyCov(point_this, ranging_cov, CALIB_ANGLE_COV)
                     else:
                         cov = vx.calcBodyCov(point_this, ranging_cov, angle_cov)
-                    # (3, 3) (1, 3, 3) (3, 3)
-                    cov = state.rot_end @ cov.squeeze(0) @ state.rot_end.T
 
-                    # 计算叉积矩阵
-                    crossmat_list = torch.zeros(point_this.shape[0], 3, 3, dtype=DOUBLE, device=DEVICE)
-                    crossmat_list[:, 0, 1] = -points_this[:, 2]
-                    crossmat_list[:, 0, 2] = points_this[:, 1]
-                    crossmat_list[:, 1, 0] = points_this[:, 2]
-                    crossmat_list[:, 1, 2] = -points_this[:, 0]
-                    crossmat_list[:, 2, 0] = -points_this[:, 1]
-                    crossmat_list[:, 2, 1] = points_this[:, 0]  # 形状 (N, 3, 3)
-
-                    norm_p = corr_normvect[i][1]
+                    cov = state_rot_end @ cov @ state_rot_end.T
+                    point_crossmat = crossmat_list[i]  # 需要提前定义
+                    norm_p = corr_normvect[i]['normal']
                     norm_vec = norm_p
                     # 转换点到世界坐标
                     point_world = state_rot_end @ point_this + state_pos_end
