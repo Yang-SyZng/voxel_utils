@@ -61,8 +61,8 @@ result_path = None
 file_path = None
 file_format = None
 pcd = None
-points_tensor = None
-normals_tensor = None
+points_tensor: torch.Tensor
+normals_tensor: torch.Tensor
 rgb_tensor = None
 solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
 G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
@@ -71,7 +71,7 @@ I_STATE = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
 rot_add = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
 t_add = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
 state_propagat = None
-state = None
+state: StatesGroup
 corr_normvect = []
 frame_num: int = 0
 deltaT: int = 0
@@ -85,7 +85,7 @@ downSizeFilterSurf = None
 
 # time_buffer: float = 0.
 last_timestamp_lidar: float = -1.0
-timer = None
+timer: TimestampUpdater
 
 Measures = MeasureGroup()
 
@@ -212,7 +212,6 @@ def main(*args: Namespace):
     global timer, Measures
     if isinstance(args, tuple):
         args = args[0]
-    
     scanIdx = 0
     # cummon params
     lid_topic = args.lid_topic
@@ -226,7 +225,7 @@ def main(*args: Namespace):
     
     # imu params, current version does not support imu
     imu_en = args.imu_en
-    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE).reshape(3)
+    extrinT = torch.tensor(args.extrinsic_T, dtype=DOUBLE, device=DEVICE)
     extrinR = torch.tensor(args.extrinsic_R, dtype=DOUBLE, device=DEVICE).reshape(3, 3)
     
     # mapping algorithm params

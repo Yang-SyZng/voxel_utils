@@ -230,11 +230,11 @@ class StatesGroup:
         """
         new_state = StatesGroup()
         new_state.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
-        new_state.pos_end = self.pos_end + state_add[3: 6].reshape(3)
-        new_state.vel_end = self.vel_end + state_add[6: 9].reshape(3)
-        new_state.bias_g = self.bias_g + state_add[9: 12].reshape(3)
-        new_state.bias_a = self.bias_a + state_add[12: 15].reshape(3)
-        new_state.gravity = self.gravity + state_add[15: 18].reshape(3)
+        new_state.pos_end = self.pos_end + state_add[3: 6]
+        new_state.vel_end = self.vel_end + state_add[6: 9]
+        new_state.bias_g = self.bias_g + state_add[9: 12]
+        new_state.bias_a = self.bias_a + state_add[12: 15]
+        new_state.gravity = self.gravity + state_add[15: 18]
         new_state.cov = self.cov
         return new_state
 
@@ -249,11 +249,11 @@ class StatesGroup:
             StatesGroup: Self with updated values.
         """
         self.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
-        self.pos_end += state_add[3:6].reshape(3)
-        self.vel_end += state_add[6:9].reshape(3)
-        self.bias_g += state_add[9:12].reshape(3)
-        self.bias_a += state_add[12:15-DIM_STATE].reshape(3)
-        self.gravity += state_add[15:18].reshape(3)
+        self.pos_end += state_add[3:6]
+        self.vel_end += state_add[6:9]
+        self.bias_g += state_add[9:12]
+        self.bias_a += state_add[12:15-DIM_STATE]
+        self.gravity += state_add[15:18]
 
         return self
 
@@ -575,7 +575,7 @@ def Exp(*args) -> torch.Tensor:
     elif len(args) == 3:
         # Exp(v1, v2, v3)
         v1, v2, v3 = args
-        v = torch.tensor([v1, v2, v3], dtype=DOUBLE, device=DEVICE).reshape(3)
+        v = torch.tensor([v1, v2, v3], dtype=DOUBLE, device=DEVICE)
         norm = torch.norm(v)
         if norm > 1e-5:
             r_ang = v / norm
@@ -611,7 +611,7 @@ def Log(R: torch.Tensor) -> torch.Tensor:
         R[2, 1] - R[1, 2],
         R[0, 2] - R[2, 0],
         R[1, 0] - R[0, 1]
-    ], dtype=DOUBLE, device=DEVICE).reshape(3)
+    ], dtype=DOUBLE, device=DEVICE)
 
     # 根据 theta 大小选择返回结果
     if torch.abs(theta) < 0.001:
