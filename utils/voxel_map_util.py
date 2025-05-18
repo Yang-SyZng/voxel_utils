@@ -92,9 +92,9 @@ class OctoTree:
         self.layer_: int = layer
         self.octo_state_: int = 0  # 0: end of tree, 1: not end
         self.layer_point_size_: List[int] = layer_point_size
-        self.leaves_: List[OctoTree] = [None for _ in range(8)]
+        self.leaves_: List[Optional[OctoTree]] = [None for _ in range(8)]
         
-        self.voxel_center_: torch.Tensor = torch.zeros((3), dtype=DOUBLE, device=DEVICE)  # 修正为张量  # x, y, z
+        self.voxel_center_: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)  # 修正为张量  # x, y, z
         
         self.quater_length_: float = 0.0
         self.planer_threshold_: float = planer_threshold
@@ -295,7 +295,7 @@ class PointCloud:
         return pcd
     
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
-# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
+# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|   \___TT  __|   \_II  _|    OO _____OO \    NNN\    NN |   SS  ______|
 # FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
 # FFFFF\       UU |    UU |   NN \N\ NN |   CC |               TT |        II |     OO |      OO |   NN NN\  NN |    SSSSSSS \
 # FF  __|      UU |    UU |   NN |\NNNN |   CC |               TT |        II |     OO |      OO |   NN | NN\NN |           SS \
@@ -304,25 +304,26 @@ class PointCloud:
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \______|       \__|   \___|    \_______/
 # Created by zty 2025/04/26
 def build_single_residual(pv: pointWithCov, current_octo: OctoTree,
-                          current_layer: int, max_layer: int, sigma_num: float,
-                        is_success: bool, prob: float, single_ptpl: Ptpl):
+                          current_layer: int, max_layer: int, sigma_num: float):
+    is_success: bool = False
+    prob: float = 0.0
+    single_ptpl: Ptpl = Ptpl()
     radius_k: float = 3.
     p_w = pv.point_world #(3)
     
-    if current_octo.plane_ptr.is_plane:
+    if current_octo.plane_ptr_.is_plane:
         plane = current_octo.plane_ptr_
-        
         # (3) - (3) -> (3)
         p_world_to_center = p_w - plane.center
         # (3) @ (3) + d -> (1)
-        dis_to_plane = torch.abs(torch.sum(plane.normal * p_w, dim=1) + plane.d)
+        dis_to_plane = torch.abs(torch.sum(plane.normal * p_w) + plane.d)
         # (1)
-        dis_to_center = torch.sum((plane.center - p_w) ** 2, dim=1)
+        dis_to_center = torch.sum((plane.center - p_w) ** 2)
         # ()
         range_dis = torch.sqrt(dis_to_center - dis_to_plane ** 2)
         if range_dis <= radius_k * plane.radius:
             # (3) and (3) -> (6)
-            J_nq = torch.cat([p_world_to_center, -plane.normal], dim=1)
+            J_nq = torch.cat([p_world_to_center, -plane.normal])
             
             # (6) @ (6, 6) @ (6).T -> (1)
             sigma_l = torch.einsum('i,ij,j->', J_nq, plane.plane_cov, J_nq)
@@ -340,12 +341,13 @@ def build_single_residual(pv: pointWithCov, current_octo: OctoTree,
                     single_ptpl.d = plane.d
                     single_ptpl.layer = current_layer
                 return is_success, prob, single_ptpl
+            return is_success, prob, single_ptpl
+        return is_success, prob, single_ptpl
     else:
         if current_layer < max_layer:
             for leaf in current_octo.leaves_:
                 if leaf is not None:
-                    is_success, prob, single_ptpl = build_single_residual(pv, leaf, current_layer + 1,
-                                        max_layer, sigma_num, is_success, prob, single_ptpl)
+                    is_success, prob, single_ptpl = build_single_residual(pv, leaf, current_layer + 1, max_layer, sigma_num)
         return is_success, prob, single_ptpl
     
 def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
@@ -361,7 +363,7 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
     mylock = threading.Lock()
 
     # 计算每个点所属的体素索引
-    loc_xyz = pv.point_world / voxel_size # torch.Tensor (N, 3)
+    loc_xyz = pv_list.point_world / voxel_size # torch.Tensor (N, 3)
     loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
     loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
 
@@ -387,17 +389,13 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
 
         # 对该体素内每个点单独调用build_single_residual
         for local_i, idx in enumerate(global_indices):
-            is_success: bool = False
-            prob: float = 0.0
-            single_ptpl: Ptpl = None
             # 创建局部pv
             pv = pointWithCov()
             pv.points = pv_list.points[idx]
             pv.covs = pv_list.covs[idx]
             pv.point_world = pv_list.point_world[idx]
 
-            is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num,
-                                                                is_success, prob, single_ptpl)
+            is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
             if not is_success:
                 # 尝试邻近体素
                 near_position = VOXEL_LOC(position.x, position.y, position.z)
@@ -416,10 +414,8 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
                     near_position.z += 1
                 elif z < cz - q:
                     near_position.z -= 1
-                neighbor_octo = voxel_map[near_position]
-                if neighbor_octo:
-                    is_success, prob, single_ptpl = build_single_residual(pv, neighbor_octo, 0, max_layer,
-                                                    sigma_num, is_success, prob, single_ptpl)
+                if near_position in voxel_map:
+                    is_success, prob, single_ptpl = build_single_residual(pv, voxel_map[near_position], 0, max_layer, sigma_num)
             # 更新结果
             with mylock:
                 if is_success:
@@ -449,20 +445,11 @@ def RotMtoEuler(rot: torch.Tensor) -> torch.Tensor:
 
 def downsample_point_cloud(input_cloud: PointXYZINormal, voxel_size: float = 0.05) -> PointXYZINormal:
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(input_cloud.points[:, :3].clone().cpu().numpy())
+    pcd.points = o3d.utility.Vector3dVector(input_cloud.points.clone().cpu().numpy())
     down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
     down_points = np.asarray(down_pcd.points)  # (M, 3)
     down_points = torch.tensor(down_points, dtype=DOUBLE, device=DEVICE)
-    intensity = torch.zeros((down_points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-    curvature = torch.zeros((down_points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
-    normals_tensor = torch.zeros((down_points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
-    return PointXYZINormal(
-        points=torch.cat([
-                down_points,  # (N, 3) -> [x, y, z]
-                intensity,      # (N, 1) -> [intensity]
-                normals_tensor, # (N, 3) -> [nx, ny, nz]
-                curvature       # (N, 1) -> [curvature]
-            ], dim=1))  # 结果形状 (N, 7)    )
+    return PointXYZINormal(points=down_points)
 
 
 def GetUpdatePlane(current_octo: OctoTree, pub_max_voxel_layer: int, plane_list: List[Plane]):
@@ -576,11 +563,8 @@ def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZ
     Returns:
         list: List of PointCloudXYZI objects in world frame.
     """
-    # 提取点云的 x, y, z 和 intensity
     points_lidar = input_cloud.points  # 形状 (N, 3)
     intensities = input_cloud.intensity
-
-    # state.rot_end 和 state.pos_end 已经是张量
     rot_end = state.rot_end  # 形状 (3, 3)
     pos_end = state.pos_end  # 形状 (3)
 
@@ -588,11 +572,7 @@ def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZ
     #               (3, 3)   (3, N) + (3, 1)
     
     points_world = (rot_end @ points_lidar.T + pos_end.unsqueeze(1)).T  # 形状 (N, 3)
-    # 创建输出点云列表
-    trans_cloud = PointXYZI()
-    trans_cloud.add_points(points=points_world)
-    
-    return trans_cloud
+    return PointXYZI(points=points_world, intensity=intensities)
 
 
 def calcBodyCov(points: torch.Tensor, range_inc: float, degree_inc: float) -> torch.Tensor:

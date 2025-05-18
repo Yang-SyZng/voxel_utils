@@ -37,7 +37,7 @@ G_m_s2 = 9.81  # 重力加速度
 # PointXYZI = PointCloudXYZI
 # PointCloudXYZI [x, y, z, intensity]
 class BasedPoint:
-    def __init__(self, points=None):
+    def __init__(self, points: torch.Tensor=None):
         if points is not None:
             if not isinstance(points, torch.Tensor):
                 raise TypeError("points must be a torch.Tensor")
@@ -48,7 +48,7 @@ class BasedPoint:
             self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
             
 
-    def add_points(self, points):
+    def add_points(self, points: torch.Tensor):
         if not isinstance(points, torch.Tensor):
             raise TypeError("points must be a torch.Tensor")
         if points.shape[1] != 3:
@@ -60,11 +60,11 @@ class BasedPoint:
         return self.points.shape[0]
 
 class PointXYZ(BasedPoint):
-    def __init__(self, points=None):
+    def __init__(self, points: torch.Tensor=None):
         super().__init__(points=points)
 
 class PointXYZI(PointXYZ):
-    def __init__(self, points=None, intensity=None):
+    def __init__(self, points: torch.Tensor=None, intensity: torch.Tensor=None):
         if intensity is not None:
             if intensity.shape[1] != 1:
                 raise ValueError("Each intensity must have 1 coordinates (intensity)")
@@ -75,7 +75,7 @@ class PointXYZI(PointXYZ):
         super().__init__(points=points)
         self.intensity = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if intensity is None else intensity
     
-    def add_points(self, points, intensity=None):
+    def add_points(self, points: torch.Tensor, intensity: torch.Tensor=None):
         super().add_points(points=points)
         if intensity is None:
             intensity = torch.zeros((points.shape[0], 1), dtype=DOUBLE, device=DEVICE)
@@ -84,7 +84,7 @@ class PointXYZI(PointXYZ):
                 raise TypeError("intensity must be a torch.Tensor")
         self.intensity = torch.cat([self.intensity, intensity.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
-    def update_intensity(self, intensity):
+    def update_intensity(self, intensity: torch.Tensor):
         if not isinstance(intensity, torch.Tensor):
             raise TypeError("intensity must be a torch.Tensor")
         if intensity.shape[1] != 1:
@@ -94,7 +94,7 @@ class PointXYZI(PointXYZ):
         self.intensity = intensity
 
 class PointXYZINormal(PointXYZI):
-    def __init__(self, points=None, intensity=None, normals=None, curvature=None):
+    def __init__(self, points: torch.Tensor=None, intensity: torch.Tensor=None, normals: torch.Tensor=None, curvature: torch.Tensor=None):
         if normals is not None:
             if normals.shape[1] != 3:
                 raise ValueError("Each normals must have 3 coordinates (nx, ny, nz)")
@@ -112,7 +112,7 @@ class PointXYZINormal(PointXYZI):
         self.normals = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if normals is None else normals
         self.curvature = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if curvature is None else curvature
 
-    def add_points(self, points, intensity=None, normals=None, curvature=None):
+    def add_points(self, points: torch.Tensor, intensity: torch.Tensor=None, normals: torch.Tensor=None, curvature: torch.Tensor=None):
         super().add_points(points=points, intensity=intensity)
         if normals is None:
             normals = torch.zeros((points.shape[0], 3), dtype=DOUBLE, device=DEVICE)
@@ -127,7 +127,7 @@ class PointXYZINormal(PointXYZI):
         self.normals = torch.cat([self.normals, normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.curvature = torch.cat([self.curvature, curvature.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
-    def update_normals(self, normals):
+    def update_normals(self, normals: torch.Tensor):
         if not isinstance(normals, torch.Tensor):
             raise TypeError("normals must be a torch.Tensor")
         if normals.shape[1] != 3:
@@ -136,7 +136,7 @@ class PointXYZINormal(PointXYZI):
             raise ValueError("normals must match shape")
         self.normals = normals
 
-    def update_curvature(self, curvature):
+    def update_curvature(self, curvature: torch.Tensor):
         if not isinstance(curvature, torch.Tensor):
             raise TypeError("curvature must be a torch.Tensor")
         if curvature.shape[1] != 1:
@@ -146,7 +146,7 @@ class PointXYZINormal(PointXYZI):
         self.curvature = curvature
     
 class pointWithCov(BasedPoint):
-    def __init__(self, points=None, covs=None, point_world=None):
+    def __init__(self, points: torch.Tensor=None, covs: torch.Tensor=None, point_world: torch.Tensor=None):
         if covs is not None:
             if covs.shape[1] != 3 and covs.shape[2] != 3:
                 raise ValueError("Each covs shape must have 3x3")
@@ -165,7 +165,7 @@ class pointWithCov(BasedPoint):
         self.covs = torch.zeros((self.points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE) if covs is None else covs
         self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
 
-    def add_points(self, points, covs=None, point_world=None):
+    def add_points(self, points: torch.Tensor, covs: torch.Tensor=None, point_world: torch.Tensor=None):
         super().add_points(points=points)
         if covs is None:
             covs = torch.zeros((points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE)
@@ -180,7 +180,7 @@ class pointWithCov(BasedPoint):
         self.covs = torch.cat([self.covs, covs.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.point_world = torch.cat([self.point_world, point_world.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
-    def update_point_world(self, point_world):
+    def update_point_world(self, point_world: torch.Tensor):
         if not isinstance(point_world, torch.Tensor):
             raise TypeError("curvature must be a torch.Tensor")
         if point_world.shape[1] != 3:
@@ -189,7 +189,7 @@ class pointWithCov(BasedPoint):
             raise ValueError("point_world must match shape")
         self.point_world = point_world
     
-    def update_covs(self, covs):
+    def update_covs(self, covs: torch.Tensor):
         if not isinstance(covs, torch.Tensor):
             raise TypeError("curvature must be a torch.Tensor")
         if covs.shape[1] != 3 or covs.shape[2] != 3:
@@ -374,9 +374,7 @@ class ImuProcess:
 
         return state_inout, N
     
-    def set_extrinsic(self, T: torch.Tensor = None, 
-                    transl: torch.Tensor = None, 
-                    rot: torch.Tensor = None):
+    def set_extrinsic(self, T: torch.Tensor=None, transl: torch.Tensor=None, rot: torch.Tensor=None):
         """
         set IMU extrinsic
         
@@ -422,7 +420,6 @@ class ImuProcess:
 
         # 设置输出点云
         pcl_out = meas.lidar
-        
         # if len(pcl_out) > 0:
         #     pcl_end_time = pcl_beg_time + pcl_out.points[-1, 3] / 1000.0
         # else:
@@ -469,22 +466,23 @@ class ImuProcess:
         # }
         # ROS_ASSERT(meas.lidar != nullptr);
 
-        if self.imu_need_init_ and self.imu_en:
-            stat, self.init_iter_num = self.IMU_init(meas, stat, self.init_iter_num)
-            self.imu_need_init_ = True
-            # self.last_imu_ = meas.imu
+        # if self.imu_need_init_ and self.imu_en:
+        #     stat, self.init_iter_num = self.IMU_init(meas, stat, self.init_iter_num)
+        #     self.imu_need_init_ = True
+        #     # self.last_imu_ = meas.imu
 
-            if self.init_iter_num > MAX_INI_COUNT:
-                self.cov_acc *= (G_m_s2 / self.mean_acc.norm()) ** 2
-                self.imu_need_init_ = False
-                self.cov_acc = Eye3d.clone() * self.cov_acc_scale
-                self.cov_gyr = Eye3d.clone() * self.cov_gyr_scale
+        #     if self.init_iter_num > MAX_INI_COUNT:
+        #         self.cov_acc *= (G_m_s2 / self.mean_acc.norm()) ** 2
+        #         self.imu_need_init_ = False
+        #         self.cov_acc = Eye3d.clone() * self.cov_acc_scale
+        #         self.cov_gyr = Eye3d.clone() * self.cov_gyr_scale
 
-            return
+        #     return
         if self.imu_en:
             print("Use IMU")
             # UndistortPcl(meas, stat, *cur_pcl_un_);
             # last_imu_ = meas.imu.back();
+            return stat, PointXYZINormal()
         else:
             print("No IMU, use constant velocity model")
             self.cov_acc = self.cov_acc_scale.clone()
@@ -517,13 +515,13 @@ class TimestampUpdater:
     def stop(self):
         self.running = False
 # FFFFFFFF\    UU\     UU\    NN\    NN\     CCCCCCCCC\    TTTTTTTTTT\   IIIIII\      OOOOOOOO\      NN\     NN\     SSSSSSSS\
-# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|       TT  __|     II  _|    OO _____OO \    NNN\    NN |   SS  ______|
+# FF  _____|   UU |    UU |   NNN\   NN |   CC ________|   \___TT  __|   \_II  _|    OO _____OO \    NNN\    NN |   SS  ______|
 # FF |         UU |    UU |   NN NN  NN |   CC |               TT |        II |     OO /      OO |   NNNN\   NN |   SS /
 # FFFFF\       UU |    UU |   NN \N\ NN |   CC |               TT |        II |     OO |      OO |   NN NN\  NN |    SSSSSSS \
 # FF  __|      UU |    UU |   NN |\NNNN |   CC |               TT |        II |     OO |      OO |   NN | NN\NN |           SS \
 # FF |         UU |    UU |   NN | \NNN |   CC |               TT |        II |      OO \    OO /    NN |  NNNN |           SS |
-# FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOOO /     NN |   NNN |    SSSSSSSS /
-# \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
+# FF |          UUUUUUUU /    NN |  \NN |    CCCCCCCCC\        TT |      IIIIII\      OOOOOOO /      NN |   NNN |    SSSSSSSS /
+# \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \______|       \__|   \___|    \_______/
 # Created by zty 2025/04/26
 
 def sync_packages(meas: MeasureGroup):
