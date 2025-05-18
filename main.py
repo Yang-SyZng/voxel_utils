@@ -535,24 +535,6 @@ def main(args: Namespace):
                 # 根据是否初始化和迭代更新
                 if not flg_EKF_inited:
                     pass
-                    # # 初始状态
-                    # H_init = torch.zeros(9, DIM_STATE)
-                    # z_init = torch.zeros(9, 1)
-                    # H_init[:3, :3] = torch.eye(3)
-                    # H_init[3:6, 3:6] = torch.eye(3)
-                    # H_init[6:, 12:] = torch.eye(3)  # 假设最后三维为位置
-
-                    # z_init[:3] = -Log(state_rot_end)
-                    # z_init[3:6] = -state_pos_end
-
-                    # K_init = state_cov @ H_init.T @ torch.inverse(H_init @ state_cov @ H_init.T + 0.0001 * torch.eye(9))
-                    # solution = K_init @ z_init
-
-                    # # 重置位置
-                    # state[:3] = torch.zeros(3)
-                    # state[3:6] = torch.zeros(3)
-                    # # 其他状态部分保持不变
-                    # EKF_stop_flg = True
                 else:
                     # 计算卡尔曼增益
                     H_T_H = Hsub_T_R_inv @ Hsub
@@ -590,8 +572,6 @@ def main(args: Namespace):
                 # 判断收敛，提前退出
                 if flg_EKF_converged:
                     break
-
-    # 其他的时间统计、日志等可以加上
                 
             scanIdx += 1
             time.sleep(6)
