@@ -37,12 +37,21 @@ class Ptpl:
         self.d: float = 0.0
         self.layer: int = 0
 
-class Ptpls(BasedPoint):
-    def __init__(self, points: torch.Tensor = None, normals: torch.Tensor = None,
-                 centers: torch.Tensor=None, plane_covs: torch.Tensor=None,
-                 ds=None, layers=None):
-        super().__init__(points=points)
-        
+class Ptpls:
+    def __init__(self):
+        self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+        self.normals = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+        self.centers = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+        self.plane_covs = torch.zeros((0, 6, 6), dtype=DOUBLE, device=DEVICE)
+        self.ds = torch.zeros((0, 1), dtype=DOUBLE, device=DEVICE)
+        self.layers = torch.zeros((0, 1), dtype=torch.int64, device=DEVICE)
+    def add_data(self, point: torch.Tensor, normal: torch.Tensor, center: torch.Tensor, plane_cov: torch.Tensor, d, layer):
+        self.points = torch.cat([self.points, point.unsqueeze(0).to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.normals = torch.cat([self.normals, normal.unsqueeze(0).to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.centers = torch.cat([self.centers, center.unsqueeze(0).to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.plane_covs = torch.cat([self.plane_covs, plane_cov.unsqueeze(0).to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        self.ds = torch.cat([self.ds, torch.tensor([d], dtype=DOUBLE, device=DEVICE).unsqueeze(0)], dim=0)
+        self.layers = torch.cat([self.layers, torch.tensor([layer], dtype=torch.int64, device=DEVICE).unsqueeze(0)], dim=0)
 class Plane:
     def __init__(self):
         # 
@@ -492,6 +501,9 @@ def pubVoxelMap(voxel_map: Dict[VOXEL_LOC, OctoTree], pub_max_voxel_layer: int):
     #     pubSinglePlane(voxel_map, "plane", pub_plane, alpha, plane_rgb)
         
 def pubSinglePlane():
+    pass
+
+def updateVoxelMap():
     pass
 
 def buildVoxelMap(input_points: pointWithCov,
