@@ -456,10 +456,8 @@ def main(args: Namespace):
                 pv.covs = cov
                 pv_list = pv
                 var_list = cov
-
-                # 构建残差列表
-
-                # 假设 BuildResidualListOMP 已定义
+                
+                # BuildResidualListOMP 已定义
                 ptpl_list = vx.buildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
 
                 effct_feat_num = 0
@@ -517,10 +515,6 @@ def main(args: Namespace):
                 R_inv[i] = 1.0 / (sigma_l + norm_vec.T @ cov @ norm_vec)
                 dis = torch.norm(point_this)
                 # 赋值到点云
-                # 这里只是示意
-                # laserCloudOri[i].intensity = torch.sqrt(R_inv[i]) # 如果支持
-                # laserCloudOri[i].normal_x = corr_normvect[i]['normal'][0]等
-                # 改为pytorch tensor的操作
 
                 # 计算Jacobian H
                 A = point_crossmat @ (state_rot_end.T @ norm_vec)
