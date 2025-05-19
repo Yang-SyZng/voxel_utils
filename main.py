@@ -431,7 +431,6 @@ def main(args: Namespace):
             for iterCount in range(NUM_MAX_ITERATIONS-1):
                 # 初始化
                 laserCloudNoeffect = []
-                corr_normvect = []
                 total_residual: float = 0.0
 
                 r_list = []
@@ -478,11 +477,10 @@ def main(args: Namespace):
 
                     # 保存到对应容器
                     laserCloudOri.add_points(pi_body.unsqueeze(0))
-                    # 处理corr_normvect（法向量）等
-                corr_normvect = [pl, dis]
-                print(pl.shape, dis.shape)
+                # 处理corr_normvect（法向量）等
+                corr_normvect = PointXYZI(points=pl, intensity=dis)
+                # print(pl.shape, dis.shape)
                 # res_mean_last = total_residual / effct_feat_num if effct_feat_num != 0 else 0
-
                 # 开始时间
                 # t_solve_start = time.time()
                 # 计算Jacobian和测量向量
@@ -507,8 +505,10 @@ def main(args: Namespace):
                 crossmat_list[:, 2, 0] = -points_this[:, 1]
                 crossmat_list[:, 2, 1] = points_this[:, 0]  # 形状 (N, 3, 3)
                 
-
-
+                norm_p = corr_normvect
+                norm_vec = norm_p.points
+                # (3, 3) @ (N, 3)  + (3) -> (N, 3)
+                point_world= (state.rot_end @ point_this.T).T + state.pos_end
                 # 计算J_nq
                 J_nq = torch.cat([point_world - ptpl_list[i]['center'], -ptpl_list[i]['normal']])
                 sigma_l = J_nq @ ptpl_list[i]['plane_cov'] @ J_nq.T
@@ -582,17 +582,3 @@ if __name__ == '__main__':
     # print(args)
     main(args)
     
-    # # 测试用例
-    # feats_undistort = [PointXYZI(-9.10841, -6.09084, -1.2345, 0.0), PointXYZI(-9.10841, -6.09084, -1.2345, 0.0)]
-    # state = StatesGroup()
-    # range_inc = 0.04
-    # degree_inc = 0.1
-    # Lidar_offset_to_IMU = torch.tensor([[0, 0, 0]], dtype=DOUBLE, device="cuda")
-    # max_layer = 2
-    # max_voxel_size = 2
-    # max_points_size = 1000
-    # max_cov_points_size = 1000
-    # min_eigen_value = 0.01
-    # voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
-    # c2v(state, feats_undistort, range_inc, degree_inc, Lidar_offset_to_IMU,
-    #     max_layer, max_voxel_size, max_points_size, max_cov_points_size, min_eigen_value, voxel_map)

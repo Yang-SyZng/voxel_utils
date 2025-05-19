@@ -1,6 +1,6 @@
 import torch
 from typing import List, Optional, Dict
-from lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, PointXYZ, pointWithCov
+from lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, PointXYZ, pointWithCov, BasedPoint
 from utils import DOUBLE, DEVICE
 import open3d as o3d
 import numpy as np
@@ -36,6 +36,13 @@ class Ptpl:
         self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         self.d: float = 0.0
         self.layer: int = 0
+
+class Ptpls(BasedPoint):
+    def __init__(self, points: torch.Tensor = None, normals: torch.Tensor = None,
+                 centers: torch.Tensor=None, plane_covs: torch.Tensor=None,
+                 ds=None, layers=None):
+        super().__init__(points=points)
+        
 class Plane:
     def __init__(self):
         # 
