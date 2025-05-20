@@ -631,6 +631,7 @@ def main(args: Namespace):
             
             scanIdx += 1
     print("done!")
+    print("size ", len(voxel_map))
     return voxel_map
         
             #
