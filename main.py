@@ -16,7 +16,7 @@ import open3d as o3d
 import numpy as np
 import time
 # torch.set_printoptions(precision=5, linewidth=1000)
-torch.set_printoptions(sci_mode=False, precision=12, linewidth=1000)
+torch.set_prtoptions(sci_mode=False, precision=12, linewidth=1000)
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
@@ -549,7 +549,6 @@ def main(args: Namespace):
                 # 计算Jacobian H
                 # (N, 3, 3) (3, 3) (N, 3)
                 rotated_norm = state.rot_end.T @ norm_vec.unsqueeze(-1)  # (N, 3, 1)
-                print(crossmat_list_temp.shape, rotated_norm.shape)
                 A = (crossmat_list_temp @ rotated_norm).squeeze(-1)  # (N, 3)
                 
                 Hsub[:, :3] = A
@@ -588,7 +587,7 @@ def main(args: Namespace):
                     if deltaR < 0.01 and deltaT < 0.015:
                         flg_EKF_converged = True
 
-                euler_cur = RotMtoEuler(state.rot_end)
+                # euler_cur = RotMtoEuler(state.rot_end)
                 if flg_EKF_converged or ((rematch_num == 0) and (iterCount == (NUM_MAX_ITERATIONS - 2))):
                     nearest_search_en = True
                     rematch_num += 1
@@ -623,7 +622,9 @@ def main(args: Namespace):
                         t_var
             pv_list.covs = covs
             
-            vx.updateVoxelMap()
+            vx.updateVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
+                             max_points_size, max_points_size, min_eigen_value,
+                             voxel_map)
             
             
             scanIdx += 1

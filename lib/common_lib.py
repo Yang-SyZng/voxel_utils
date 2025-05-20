@@ -74,7 +74,7 @@ class PointXYZI(PointXYZ):
                 raise TypeError("intensity must be a torch.Tensor")
         super().__init__(points=points)
         self.intensity = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if intensity is None else intensity
-    
+    @property
     def add_points(self, points: torch.Tensor, intensity: torch.Tensor=None):
         super().add_points(points=points)
         if intensity is None:
@@ -164,6 +164,11 @@ class pointWithCov(BasedPoint):
         super().__init__(points=points)
         self.covs = torch.zeros((self.points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE) if covs is None else covs
         self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
+
+    def clear(self):
+        self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+        self.covs = torch.zeros((0, 3, 3), dtype=DOUBLE, device=DEVICE)
+        self.point_world = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
 
     def add_points(self, points: torch.Tensor, covs: torch.Tensor=None, point_world: torch.Tensor=None):
         super().add_points(points=points)

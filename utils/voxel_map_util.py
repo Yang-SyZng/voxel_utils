@@ -102,7 +102,7 @@ class OctoTree:
                  max_cov_points_size: int, 
                  planer_threshold: float):
         self.temp_points_ = pointWithCov()
-        self.new_points_ = PointXYZ()
+        self.new_points_ = pointWithCov()
         self.plane_ptr_: Plane = Plane()
         self.max_layer_: int = max_layer
         self.layer_: int = layer
@@ -296,9 +296,92 @@ class OctoTree:
                         self.leaves_[i].cut_octo_tree()
                     self.leaves_[i].init_octo_ = True
                     self.leaves_[i].new_points_num_ = 0
-    def UpdateOctoTree(self):
-        pass
 
+    def UpdateOctoTree(self, p_v: pointWithCov):
+        if not self.init_octo_:
+            self.new_points_num_ += p_v.size
+            self.all_points_num_ += p_v.size
+            self.temp_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+            if self.temp_points_.size > self.max_plane_update_threshold_:
+                self.init_octo_tree()
+        else:
+            if self.plane_ptr_.is_plane:
+                if self.update_enable_:
+                    self.new_points_num_ += p_v.size
+                    self.all_points_num_ += p_v.size
+                    if self.update_cov_enable_:
+                        self.temp_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                    else:
+                        self.new_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                    if self.new_points_num_ > self.update_size_threshold_:
+                        if self.update_cov_enable_:
+                            self.init_plane(self.temp_points_)
+                        self.new_points_num_ = 0
+                    if self.all_points_num_ >= self.max_cov_points_size_:
+                        self.update_cov_enable_ = False
+                        self.temp_points_.clear
+                    if self.all_points_num_ >= self.max_points_size_:
+                        self.update_enable_ = False
+                        self.plane_ptr_.update_enable = False
+                        self.temp_points_.clear
+                else:
+                    return
+            else:
+                if self.layer_ < self.max_layer_:
+                    if self.temp_points_.size != 0:
+                        self.temp_points_.clear
+                    if self.new_points_.size != 0:
+                        self.temp_points_.clear
+                        for i in range(p_v.size):
+                            point = p_v.points[i]
+                            xyz = [0, 0, 0]
+                            if point[0] > self.voxel_center_[0]:
+                                xyz[0] = 1
+                            if point[1] > self.voxel_center_[1]:
+                                xyz[1] = 1
+                            if point[2] > self.voxel_center_[2]:
+                                xyz[2] = 1
+                            leafnum = 4 * xyz[0] + 2 * xyz[1] + xyz[2]
+                            if self.leaves_[leafnum] is None:
+                                self.leaves_[leafnum] = OctoTree(
+                                    self.max_layer, self.layer_ + 1, self.layer_point_size,
+                                    self.max_points_size, self.max_cov_points_size, self.planer_threshold
+                                )
+                                self.leaves_[leafnum].quater_length_ = self.quater_length_ / 2
+                                self.leaves_[leafnum].voxel_center_ = self.voxel_center_ + \
+                                        torch.tensor([(2 * xyz[0] - 1) * self.quater_length_,
+                                                    (2 * xyz[1] - 1) * self.quater_length_,
+                                                    (2 * xyz[2] - 1) * self.quater_length_],
+                                                    dtype=DOUBLE, device=DEVICE)
+                            pv_single = pointWithCov(
+                                points=point.unsqueeze(0),
+                                covs=p_v.covs[i].unsqueeze(0),
+                                point_world=p_v.point_world[i].unsqueeze(0)
+                            )
+                            self.leaves_[leafnum].UpdateOctoTree(pv_single)
+                    else:
+                        if self.update_enable_:
+                            self.new_points_num_ += p_v.size
+                            self.all_points_num_ += p_v.size
+                            if self.update_cov_enable_:
+                                self.temp_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                            else:
+                                self.new_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                            if self.new_points_num_ > self.update_size_threshold_:
+                                if self.update_cov_enable_:
+                                    self.init_plane(self.temp_points_)
+                                else:
+                                    self.update_plane(self.new_points_)
+                                    self.new_points_.clear
+                                self.new_points_num_ = 0
+                            if self.all_points_num_ >= self.max_cov_points_size:
+                                self.update_cov_enable_ = False
+                                self.temp_points_.clear
+                            if self.all_points_num_ >= self.max_points_size:
+                                self.update_enable_ = False
+                                if self.plane_ptr_:
+                                    self.plane_ptr_.update_enable = False
+                                self.new_points_.clear
 class PointCloud:
     def __init__(self, points: np.ndarray = None, timestamps: np.ndarray = None):
         self.points = points  # 形状 (N, 3)，numpy 数组
@@ -503,8 +586,42 @@ def pubVoxelMap(voxel_map: Dict[VOXEL_LOC, OctoTree], pub_max_voxel_layer: int):
 def pubSinglePlane():
     pass
 
-def updateVoxelMap():
-    pass
+def updateVoxelMap(input_points: pointWithCov,
+                  voxel_size: float, max_layer: int,
+                  layer_point_size: List[int],
+                  max_points_size: int, max_cov_points_size: int, 
+                  planer_threshold: float, 
+                  feat_map: Dict[VOXEL_LOC, OctoTree], 
+                  ) -> Dict[VOXEL_LOC, OctoTree]:
+    plsize = input_points.size
+    loc_xyz = input_points.points / voxel_size
+    loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
+    loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
+    loc_xyz_unique, inverse_indices = torch.unique(loc_xyz, dim=0, return_inverse=True)
+    N_unique = loc_xyz_unique.shape[0]
+    print("update voxel map size:", N_unique)
+    for i in range(N_unique):
+        voxel_idx = loc_xyz_unique[i]  # (3,)
+        position = VOXEL_LOC(int(voxel_idx[0]), int(voxel_idx[1]), int(voxel_idx[2]))
+        if position in feat_map:
+            # 找到属于该体素的所有点
+            mask = (inverse_indices == i)
+            p_v = pointWithCov(points=input_points.points[mask], covs=input_points.covs[mask], point_world=input_points.point_world[mask])
+            feat_map[position].UpdateOctoTree(p_v)
+        else:
+            # 找到属于该体素的所有点
+            mask = (inverse_indices == i)
+            p_v = pointWithCov(points=input_points.points[mask], covs=input_points.covs[mask], point_world=input_points.point_world[mask])
+            
+            # 创建体素
+            octo_tree = OctoTree(max_layer, 0, layer_point_size, max_points_size,
+                                max_cov_points_size, planer_threshold)
+            feat_map[position] = octo_tree
+            feat_map[position].quater_length_ = voxel_size / 4
+            feat_map[position].voxel_center_[0] = (0.5 + position.x) * voxel_size
+            feat_map[position].voxel_center_[1] = (0.5 + position.y) * voxel_size
+            feat_map[position].voxel_center_[2] = (0.5 + position.z) * voxel_size
+            feat_map[position].UpdateOctoTree(p_v)
 
 def buildVoxelMap(input_points: pointWithCov,
                   voxel_size: float, max_layer: int,
