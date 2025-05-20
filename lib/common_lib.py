@@ -58,7 +58,10 @@ class BasedPoint:
     @property
     def size(self):
         return self.points.shape[0]
-
+    
+    @property
+    def clear(self):
+        self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
 class PointXYZ(BasedPoint):
     def __init__(self, points: torch.Tensor=None):
         super().__init__(points=points)
@@ -74,7 +77,7 @@ class PointXYZI(PointXYZ):
                 raise TypeError("intensity must be a torch.Tensor")
         super().__init__(points=points)
         self.intensity = torch.zeros((self.points.shape[0], 1), dtype=DOUBLE, device=DEVICE) if intensity is None else intensity
-    @property
+    
     def add_points(self, points: torch.Tensor, intensity: torch.Tensor=None):
         super().add_points(points=points)
         if intensity is None:
@@ -93,6 +96,10 @@ class PointXYZI(PointXYZ):
             raise ValueError("Intensity must match shape")
         self.intensity = intensity
 
+    @property
+    def clear(self):
+        super().clear
+        self.intensity = torch.zeros((0, 1), dtype=DOUBLE, device=DEVICE)
 class PointXYZINormal(PointXYZI):
     def __init__(self, points: torch.Tensor=None, intensity: torch.Tensor=None, normals: torch.Tensor=None, curvature: torch.Tensor=None):
         if normals is not None:
@@ -144,7 +151,12 @@ class PointXYZINormal(PointXYZI):
         if curvature.shape[0] != self.curvature.shape[0]:
             raise ValueError("curvature must match shape")
         self.curvature = curvature
-    
+
+    @property
+    def clear(self):
+        super().clear
+        self.normals = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+        self.curvature = torch.zeros((0, 1), dtype=DOUBLE, device=DEVICE)
 class pointWithCov(BasedPoint):
     def __init__(self, points: torch.Tensor=None, covs: torch.Tensor=None, point_world: torch.Tensor=None):
         if covs is not None:
@@ -165,8 +177,9 @@ class pointWithCov(BasedPoint):
         self.covs = torch.zeros((self.points.shape[0], 3, 3), dtype=DOUBLE, device=DEVICE) if covs is None else covs
         self.point_world = torch.zeros((self.points.shape[0], 3), dtype=DOUBLE, device=DEVICE) if point_world is None else point_world
 
+    @property
     def clear(self):
-        self.points = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
+        super().clear
         self.covs = torch.zeros((0, 3, 3), dtype=DOUBLE, device=DEVICE)
         self.point_world = torch.zeros((0, 3), dtype=DOUBLE, device=DEVICE)
 
@@ -243,7 +256,7 @@ class StatesGroup:
         new_state.cov = self.cov
         return new_state
 
-    def __iadd__(self, state_add):
+    def __iadd__(self, state_add: torch.Tensor):
         """
         In-place addition of a state increment.
 
@@ -253,11 +266,11 @@ class StatesGroup:
         Returns:
             StatesGroup: Self with updated values.
         """
-        self.rot_end = self.rot_end * Exp(state_add[0, 0], state_add[1, 0], state_add[2, 0])
+        self.rot_end = self.rot_end * Exp(state_add[0], state_add[1], state_add[2])
         self.pos_end += state_add[3:6]
         self.vel_end += state_add[6:9]
         self.bias_g += state_add[9:12]
-        self.bias_a += state_add[12:15-DIM_STATE]
+        self.bias_a += state_add[12:15]
         self.gravity += state_add[15:18]
 
         return self
@@ -272,7 +285,7 @@ class StatesGroup:
         Returns:
             torch.Tensor: Shape (DIM_STATE, 1), state difference.
         """
-        diff = torch.zeros(DIM_STATE, 1, dtype=DOUBLE, device=DEVICE)
+        diff = torch.zeros(DIM_STATE, dtype=DOUBLE, device=DEVICE)
 
         rotd = other.rot_end.T * self.rot_end
         diff[0:3] = Log(rotd)
@@ -509,7 +522,7 @@ class TimestampUpdater:
     def update_timestamp(self):
         while self.running:
             self.timestamp.header['stamp'] = time.time()  # 更新时间戳
-            print(f"Updated Timestamp: {self.timestamp.toSec()}")
+            # print(f"Updated Timestamp: {self.timestamp.toSec()}")
             time.sleep(self.Duration)
 
     def start(self):
@@ -550,9 +563,9 @@ def Exp(*args) -> torch.Tensor:
         if norm > 1e-7:
             r_ang = ang / norm
             K = torch.tensor([
-                [0, -r_ang[2, 0], r_ang[1, 0]],
-                [r_ang[2, 0], 0, -r_ang[0, 0]],
-                [-r_ang[1, 0], r_ang[0, 0], 0]
+                [0, -r_ang[2], r_ang[1]],
+                [r_ang[2], 0, -r_ang[0]],
+                [-r_ang[1], r_ang[0], 0]
             ], dtype=DOUBLE, device=DEVICE)
             return Eye3 + torch.sin(norm) * K + (1.0 - torch.cos(norm)) * K @ K
         else:
@@ -566,9 +579,9 @@ def Exp(*args) -> torch.Tensor:
         if norm > 1e-7:
             r_ang = ang_vel / norm
             K = torch.tensor([
-                [0, -r_ang[2, 0], r_ang[1, 0]],
-                [r_ang[2, 0], 0, -r_ang[0, 0]],
-                [-r_ang[1, 0], r_ang[0, 0], 0]
+                [0, -r_ang[2], r_ang[1]],
+                [r_ang[2], 0, -r_ang[0]],
+                [-r_ang[1], r_ang[0], 0]
             ], dtype=DOUBLE, device=DEVICE)
             r_angle = norm * dt
             return Eye3 + torch.sin(r_angle) * K + (1.0 - torch.cos(r_angle)) * K @ K
@@ -583,9 +596,9 @@ def Exp(*args) -> torch.Tensor:
         if norm > 1e-5:
             r_ang = v / norm
             K = torch.tensor([
-                [0, -r_ang[2, 0], r_ang[1, 0]],
-                [r_ang[2, 0], 0, -r_ang[0, 0]],
-                [-r_ang[1, 0], r_ang[0, 0], 0]
+                [0, -r_ang[2], r_ang[1]],
+                [r_ang[2], 0, -r_ang[0]],
+                [-r_ang[1], r_ang[0], 0]
             ], dtype=DOUBLE, device=DEVICE)
             return Eye3 + torch.sin(norm) * K + (1.0 - torch.cos(norm)) * K @ K
         else:
@@ -607,7 +620,7 @@ def Log(R: torch.Tensor) -> torch.Tensor:
     trace_R = R.trace()
 
     # 计算旋转角度 theta
-    theta = 0.0 if trace_R > 3.0 - 1e-6 else torch.acos(0.5 * (trace_R - 1))
+    theta = torch.tensor(0.0, device=DEVICE, dtype=DOUBLE) if trace_R > 3.0 - 1e-6 else torch.acos(0.5 * (trace_R - 1))
 
     # 计算反对称矩阵的向量表示 K
     K = torch.tensor([

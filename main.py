@@ -16,7 +16,7 @@ import open3d as o3d
 import numpy as np
 import time
 # torch.set_printoptions(precision=5, linewidth=1000)
-torch.set_prtoptions(sci_mode=False, precision=12, linewidth=1000)
+torch.set_printoptions(sci_mode=False, precision=12, linewidth=1000)
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
 #   VV \      VV /   AA  ____AA\   LL |         UU |    UU |  EE  ______|  SS  ______|
 #    VV \    VV /    AA /    AA |  LL |         UU |    UU |  EE |         SS /
@@ -64,7 +64,7 @@ pcd = None
 points_tensor: torch.Tensor
 normals_tensor: torch.Tensor
 rgb_tensor = None
-solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
+solution = torch.zeros(DIM_STATE, dtype=DOUBLE, device=DEVICE)
 G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 H_T_H = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 I_STATE = torch.eye(DIM_STATE, dtype=DOUBLE, device=DEVICE)
@@ -268,7 +268,7 @@ def main(args: Namespace):
     rgb_tensor = torch.tensor(np.asarray(pcd.colors), dtype=DOUBLE, device=DEVICE)
     
     # solution: 18x1 列向量
-    solution = torch.zeros((DIM_STATE, 1), dtype=DOUBLE, device=DEVICE)
+    solution = torch.zeros(DIM_STATE, dtype=DOUBLE, device=DEVICE)
 
     # G, H_T_H, I_STATE: 18x18 矩阵
     G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
@@ -445,10 +445,13 @@ def main(args: Namespace):
 
             for iterCount in range(NUM_MAX_ITERATIONS-1):
                 # 初始化
-                laserCloudNoeffect = []
+                laserCloudOri.clear
+                laserCloudNoeffect.clear
+                corr_normvect.clear
+
                 total_residual: float = 0.0
 
-                r_list = []
+                # r_list = []
                 ptpl_list = []
 
                 # 转换LiDAR
@@ -492,7 +495,7 @@ def main(args: Namespace):
                 # total_residual += abs(dis)
 
                 # 保存到对应容器
-                laserCloudOri.add_points(pi_body)
+                laserCloudOri.add_points(points=pi_body)
                 
                 # 处理corr_normvect（法向量）等
                 corr_normvect = PointXYZI(points=pl, intensity=dis)
@@ -528,6 +531,7 @@ def main(args: Namespace):
                 point_world = point_this @ state.rot_end + state.pos_end
                 # 计算J_nq
                 J_nq = torch.zeros(point_this.shape[0], 1, 6, dtype=DOUBLE, device=DEVICE)
+                print(J_nq.shape, point_world.shape)
                 J_nq[:, :1, :3] = (point_world + ptpls.centers).unsqueeze(1)
                 J_nq[:, :1, 3:6] = -ptpls.normals.unsqueeze(1)
                 # (N, 1, 6) (N, 6, 6) (N, 6, 1) -> (N, 1)
@@ -558,8 +562,6 @@ def main(args: Namespace):
 
                 meas_vec = -norm_p.intensity
                 
-                
-                print("done!")
                 # 计算核
                 # 根据是否初始化和迭代更新
                 if not True:
@@ -571,10 +573,10 @@ def main(args: Namespace):
                     k_1 = (H_T_H + state.cov.inverse()).inverse()
                     # (18, 6) (6, N)
                     K = k_1[:, :6] @ Hsub_T_R_inv
-                    vec = state_propagat - state
+                    vec = (state_propagat - state).unsqueeze(1)
                     # (18, N) (N, 1) (18, 1) - (18, N) (N, 6) (6, 1) -> (18, 1)
-                    solution = K @ meas_vec + vec - K @ Hsub @ vec[:6]
-
+                    
+                    solution = (K @ meas_vec + vec - K @ Hsub @ vec[:6]).squeeze(1)
                     state += solution
                     # 判断是否收敛
                     rot_add = solution[:3]
@@ -628,8 +630,7 @@ def main(args: Namespace):
             
             
             scanIdx += 1
-            print(f"end")
-            # exit(-1)
+    print("done!")
     return voxel_map
         
             #

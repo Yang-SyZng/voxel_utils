@@ -374,10 +374,10 @@ class OctoTree:
                                     self.update_plane(self.new_points_)
                                     self.new_points_.clear
                                 self.new_points_num_ = 0
-                            if self.all_points_num_ >= self.max_cov_points_size:
+                            if self.all_points_num_ >= self.max_cov_points_size_:
                                 self.update_cov_enable_ = False
                                 self.temp_points_.clear
-                            if self.all_points_num_ >= self.max_points_size:
+                            if self.all_points_num_ >= self.max_points_size_:
                                 self.update_enable_ = False
                                 if self.plane_ptr_:
                                     self.plane_ptr_.update_enable = False
@@ -479,50 +479,45 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
 
         voxel_idx = loc_xyz_unique[u]  # (3,)
         position = VOXEL_LOC(int(voxel_idx[0]), int(voxel_idx[1]), int(voxel_idx[2]))
-        current_octo = voxel_map[position]
+        
+        if position in voxel_map:
+            current_octo = voxel_map[position]
+            for local_i, idx in enumerate(global_indices):
+                # 创建局部pv
+                pv = pointWithCov()
+                pv.points = pv_list.points[idx]
+                pv.covs = pv_list.covs[idx]
+                pv.point_world = pv_list.point_world[idx]
 
-        # if current_octo is None:
-        #     # 整个体素无OctoTree
-        #     non_match.extend(global_indices)
-        #     continue
-
-        # 对该体素内每个点单独调用build_single_residual
-        for local_i, idx in enumerate(global_indices):
-            # 创建局部pv
-            pv = pointWithCov()
-            pv.points = pv_list.points[idx]
-            pv.covs = pv_list.covs[idx]
-            pv.point_world = pv_list.point_world[idx]
-
-            is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
-            if not is_success:
-                # 尝试邻近体素
-                near_position = VOXEL_LOC(position.x, position.y, position.z)
-                cx, cy, cz = current_octo.voxel_center_
-                q = current_octo.quater_length_
-                x, y, z = loc_xyz[idx]
-                if x > cx + q:
-                    near_position.x += 1
-                elif x < cx - q:
-                    near_position.x -= 1
-                if y > cy + q:
-                    near_position.y += 1
-                elif y < cy - q:
-                    near_position.y -= 1
-                if z > cz + q:
-                    near_position.z += 1
-                elif z < cz - q:
-                    near_position.z -= 1
-                if near_position in voxel_map:
-                    is_success, prob, single_ptpl = build_single_residual(pv, voxel_map[near_position], 0, max_layer, sigma_num)
-            # 更新结果
-            with mylock:
-                if is_success:
-                    useful_ptpl[idx] = True
-                    all_ptpl_list[idx] = single_ptpl
-                    ptpl_list.append(single_ptpl)
-                else:
-                    useful_ptpl[idx] = False
+                is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
+                if not is_success:
+                    # 尝试邻近体素
+                    near_position = VOXEL_LOC(position.x, position.y, position.z)
+                    cx, cy, cz = current_octo.voxel_center_
+                    q = current_octo.quater_length_
+                    x, y, z = loc_xyz[idx]
+                    if x > cx + q:
+                        near_position.x += 1
+                    elif x < cx - q:
+                        near_position.x -= 1
+                    if y > cy + q:
+                        near_position.y += 1
+                    elif y < cy - q:
+                        near_position.y -= 1
+                    if z > cz + q:
+                        near_position.z += 1
+                    elif z < cz - q:
+                        near_position.z -= 1
+                    if near_position in voxel_map:
+                        is_success, prob, single_ptpl = build_single_residual(pv, voxel_map[near_position], 0, max_layer, sigma_num)
+                # 更新结果
+                with mylock:
+                    if is_success:
+                        useful_ptpl[idx] = True
+                        all_ptpl_list[idx] = single_ptpl
+                        ptpl_list.append(single_ptpl)
+                    else:
+                        useful_ptpl[idx] = False
     return ptpl_list
     # for i in range(N):
     #     if useful_ptpl[i]:
