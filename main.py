@@ -401,8 +401,8 @@ def main(args: Namespace):
                                             max_points_size, max_points_size, min_eigen_value,
                                             voxel_map)
 
-                if publish_voxel_map:
-                    vx.pubVoxelMap(voxel_map, publish_max_voxel_layer)
+                # if publish_voxel_map:
+                #     vx.pubVoxelMap(voxel_map, publish_max_voxel_layer)
                     
                 init_map = True
                 scanIdx += 1
@@ -531,7 +531,7 @@ def main(args: Namespace):
                 point_world = point_this @ state.rot_end + state.pos_end
                 # 计算J_nq
                 J_nq = torch.zeros(point_this.shape[0], 1, 6, dtype=DOUBLE, device=DEVICE)
-                print(J_nq.shape, point_world.shape)
+                # print(J_nq.shape, point_world.shape)
                 J_nq[:, :1, :3] = (point_world + ptpls.centers).unsqueeze(1)
                 J_nq[:, :1, 3:6] = -ptpls.normals.unsqueeze(1)
                 # (N, 1, 6) (N, 6, 6) (N, 6, 1) -> (N, 1)
@@ -641,5 +641,22 @@ def main(args: Namespace):
 if __name__ == '__main__':
     args = read_yaml("config/cloud2voxel_mapping.yaml")
     # print(args)
-    main(args)
-    
+    voxel_map = main(args)
+    voxel_num = 0
+    for _, value in voxel_map.items():
+        if value.octo_state_ == 0:
+            voxel_num += 1
+        else:
+            for leaf_value in value.leaves_:
+                if leaf_value is not None:
+                    if leaf_value.octo_state_ == 0:
+                        voxel_num += 8
+                    else:
+                        for leaf_leaf_value in leaf_value.leaves_:
+                            if leaf_leaf_value is not None:
+                                voxel_num += 8
+                        else:
+                            continue
+                else:
+                    continue
+    print(voxel_num)
