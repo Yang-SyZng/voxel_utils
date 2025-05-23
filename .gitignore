@@ -9,3 +9,5 @@ test.py
 __pycache__/main.cpython-38.pyc
 /path
 /point_cloud.ply
+/origin_point_cloud_copy.ply
+/.vscode
