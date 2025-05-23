@@ -1,6 +1,5 @@
 /ws_livox
 /points3D.ply
-.vscode/settings.json
 lib/__pycache__/
 utils/__pycache__/
 test.py
@@ -11,3 +10,4 @@ __pycache__/main.cpython-38.pyc
 /point_cloud.ply
 /origin_point_cloud.ply
 /.vscode
+/__pycache__
