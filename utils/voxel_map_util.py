@@ -61,6 +61,7 @@ class Plane:
         self.x_normal: torch.Tensor = torch.zeros(3, dtype=DOUBLE, device=DEVICE)     
         self.covariance: torch.Tensor = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)  
         self.plane_cov: torch.Tensor = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)   
+        self.rotation: torch.Tensor = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE) 
 
         self.radius: float = 0.0
         self.min_eigen_value: float = 1.0
@@ -131,6 +132,7 @@ class OctoTree:
         
         self.plane_ptr_.plane_cov = torch.zeros((6, 6), dtype=DOUBLE, device=DEVICE)
         self.plane_ptr_.covariance = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE)
+        self.plane_ptr_.rotation = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE) 
         self.plane_ptr_.center = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
         self.plane_ptr_.normal = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
         self.plane_ptr_.points_size = points.points.shape[0]
@@ -153,7 +155,9 @@ class OctoTree:
         eigenvalues, eigenvectors = torch.linalg.eigh(self.plane_ptr_.covariance)
         evals = eigenvalues  # 特征值对角矩阵
         evecs = -eigenvectors # 特征向量
-        
+        self.plane_ptr_.rotation = evecs
+        # print("是否正交矩阵", evecs.T @ evecs)
+        # exit(-1)
         # 找到最小、中间、最大特征值的索引
         evals_min = torch.argmin(evals)
         evals_max = torch.argmax(evals)
@@ -161,7 +165,8 @@ class OctoTree:
         evec_min = evecs[:, evals_min]
         evec_mid = evecs[:, evals_mid]
         evec_max = evecs[:, evals_max]
-        
+        # print(evecs, evec_min, evec_mid, evec_max)
+        # exit(-1)
         # 平面协方差计算（保持不变）
         J_Q = torch.tensor([[1.0 / N, 0.0, 0.0],
                             [0.0, 1.0 / N, 0.0],

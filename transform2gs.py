@@ -2,35 +2,10 @@ from main import main, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import math
+import torch
 
 args = read_yaml("config/cloud2voxel_mapping.yaml")
 voxel_map = main(args)
-
-def normal_to_quaternion(normal):
-    z_axis = np.array([0, 0, 1])
-    normal = normal / np.linalg.norm(normal)  # 确保归一化
-    
-    # 特殊情况处理
-    if np.allclose(normal, z_axis, atol=1e-4):
-        return np.array([0, 0, 0, 1])  # 无旋转
-    if np.allclose(normal, -z_axis, atol=1e-4):
-        return np.array([1, 0, 0, 0])  # 绕 x 轴旋转 180 度
-    
-    # 使用 scipy 的向量对齐方法
-    try:
-        # 计算从 z_axis 到 normal 的旋转
-        rot, _ = R.align_vectors([normal], [z_axis])  # align_vectors 返回最优旋转
-        q = rot.as_quat()  # (x, y, z, w)
-        
-        # 验证旋转
-        rotated_z = rot.apply(z_axis)
-        if not np.allclose(rotated_z, normal, atol=1e-4):
-            print(f"Warning: Quaternion rotation mismatch. Rotated: {rotated_z}, Expected: {normal}")
-        
-        return q
-    except Exception as e:
-        print(f"Error in quaternion calculation: {e}, Normal: {normal}")
-        return np.array([0, 0, 0, 1])  # 回退到默认四元数
 
 # 定义 PLY 文件的顶点数据结构
 dtype = [
@@ -58,9 +33,10 @@ for _, value in voxel_map.items():
             normal = normal / norm
         else:
             continue  # 如果法向量无效，跳过
-
-        quat = normal_to_quaternion(normal)
-
+        rotation = np.asarray([value.plane_ptr_.x_normal.clone().cpu().numpy(), value.plane_ptr_.y_normal.clone().cpu().numpy(), value.plane_ptr_.normal.clone().cpu().numpy()]).T
+        r = R.from_matrix(rotation)  # 从旋转矩阵创建旋转对象
+        quat = r.as_quat()  # 转换为四元数 (x, y, z, w)
+        quat_norm = quat * np.linalg.norm(quat, ord=2)
         # 颜色 (红色示例)
         f_dc = [1.0, 0.0, 0.0]
         f_rest = [0.0] * 45  # 高阶 SH 填充 0
@@ -99,9 +75,10 @@ for _, value in voxel_map.items():
                         normal = normal / norm
                     else:
                         continue  # 如果法向量无效，跳过
-
-                    quat = normal_to_quaternion(normal)
-
+                    rotation = np.asarray([leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.normal.clone().cpu().numpy()]).T
+                    r = R.from_matrix(rotation)  # 从旋转矩阵创建旋转对象
+                    quat = r.as_quat()  # 转换为四元数 (x, y, z, w)
+                    quat_norm = quat * np.linalg.norm(quat, ord=2)
                     # 颜色 (红色示例)
                     f_dc = [1.0, 0.0, 0.0]
                     f_rest = [0.0] * 45  # 高阶 SH 填充 0
@@ -139,9 +116,10 @@ for _, value in voxel_map.items():
                                 normal = normal / norm
                             else:
                                 continue  # 如果法向量无效，跳过
-
-                            quat = normal_to_quaternion(normal)
-
+                            rotation = np.asarray([leaf_leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.normal.clone().cpu().numpy()]).T
+                            r = R.from_matrix(rotation)  # 从旋转矩阵创建旋转对象
+                            quat = r.as_quat()  # 转换为四元数 (x, y, z, w)
+                            quat_norm = quat * np.linalg.norm(quat, ord=2)
                             # 颜色 (红色示例)
                             f_dc = [1.0, 0.0, 0.0]
                             f_rest = [0.0] * 45  # 高阶 SH 填充 0
