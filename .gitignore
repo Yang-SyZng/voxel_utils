@@ -8,6 +8,6 @@ test.py
 __pycache__/main.cpython-38.pyc
 /path
 /point_cloud.ply
-/origin_point_cloud.ply
 /.vscode
 /__pycache__
+origin_point_cloud.ply

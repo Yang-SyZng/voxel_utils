@@ -184,7 +184,7 @@ with open("output/point_cloud/point_cloud.ply", "wb") as f:
     vertex_array.tofile(f)
 
 
-# with open("output/point_cloud/origin_point_cloud.ply", "w") as f:
+# with open("./origin_point_cloud.ply", "w") as f:
 #     # 写入头部（直接写入 ASCII 格式）
 #     f.write(header)
 #     # 写入顶点数据（需要将 vertex_array 转换为 ASCII 格式）
