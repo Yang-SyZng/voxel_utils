@@ -7,6 +7,35 @@ import torch
 args = read_yaml("config/cloud2voxel_mapping.yaml")
 voxel_map = main(args)
 
+def rotation_matrix_to_quaternion(R):
+    """Convert a 3x3 rotation matrix to a quaternion [w, x, y, z]"""
+    trace = np.trace(R)
+    if trace > 0:
+        S = np.sqrt(trace + 1.0) * 2  # S=4*w
+        w = 0.25 * S
+        x = (R[2, 1] - R[1, 2]) / S
+        y = (R[0, 2] - R[2, 0]) / S
+        z = (R[1, 0] - R[0, 1]) / S
+    elif (R[0, 0] > R[1, 1]) and (R[0, 0] > R[2, 2]):
+        S = np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2  # S=4*x
+        w = (R[2, 1] - R[1, 2]) / S
+        x = 0.25 * S
+        y = (R[0, 1] + R[1, 0]) / S
+        z = (R[0, 2] + R[2, 0]) / S
+    elif R[1, 1] > R[2, 2]:
+        S = np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2  # S=4*y
+        w = (R[0, 2] - R[2, 0]) / S
+        x = (R[0, 1] + R[1, 0]) / S
+        y = 0.25 * S
+        z = (R[1, 2] + R[2, 1]) / S
+    else:
+        S = np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2  # S=4*z
+        w = (R[1, 0] - R[0, 1]) / S
+        x = (R[0, 2] + R[2, 0]) / S
+        y = (R[1, 2] + R[2, 1]) / S
+        z = 0.25 * S
+    return [w, x, y, z]
+
 # 定义 PLY 文件的顶点数据结构
 dtype = [
     ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),  # 位置
@@ -33,10 +62,8 @@ for _, value in voxel_map.items():
             normal = normal / norm
         else:
             continue  # 如果法向量无效，跳过
-        rotation = np.asarray([value.plane_ptr_.x_normal.clone().cpu().numpy(), value.plane_ptr_.y_normal.clone().cpu().numpy(), value.plane_ptr_.normal.clone().cpu().numpy()]).T
-        r = R.from_matrix(rotation)  # 从旋转矩阵创建旋转对象
-        quat = r.as_quat()  # 转换为四元数 (x, y, z, w)
-        quat_norm = quat * np.linalg.norm(quat, ord=2)
+        rotation = np.asarray([value.plane_ptr_.x_normal.clone().cpu().numpy(), value.plane_ptr_.y_normal.clone().cpu().numpy(), value.plane_ptr_.normal.clone().cpu().numpy()])
+        quat = rotation_matrix_to_quaternion(rotation)
         # 颜色 (红色示例)
         f_dc = [1.0, 0.0, 0.0]
         f_rest = [0.0] * 45  # 高阶 SH 填充 0
@@ -75,10 +102,8 @@ for _, value in voxel_map.items():
                         normal = normal / norm
                     else:
                         continue  # 如果法向量无效，跳过
-                    rotation = np.asarray([leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.normal.clone().cpu().numpy()]).T
-                    r = R.from_matrix(rotation)  # 从旋转矩阵创建旋转对象
-                    quat = r.as_quat()  # 转换为四元数 (x, y, z, w)
-                    quat_norm = quat * np.linalg.norm(quat, ord=2)
+                    rotation = np.asarray([leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.normal.clone().cpu().numpy()])
+                    quat = rotation_matrix_to_quaternion(rotation)
                     # 颜色 (红色示例)
                     f_dc = [1.0, 0.0, 0.0]
                     f_rest = [0.0] * 45  # 高阶 SH 填充 0
@@ -116,10 +141,8 @@ for _, value in voxel_map.items():
                                 normal = normal / norm
                             else:
                                 continue  # 如果法向量无效，跳过
-                            rotation = np.asarray([leaf_leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.normal.clone().cpu().numpy()]).T
-                            r = R.from_matrix(rotation)  # 从旋转矩阵创建旋转对象
-                            quat = r.as_quat()  # 转换为四元数 (x, y, z, w)
-                            quat_norm = quat * np.linalg.norm(quat, ord=2)
+                            rotation = np.asarray([leaf_leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.normal.clone().cpu().numpy()])
+                            quat = rotation_matrix_to_quaternion(rotation)
                             # 颜色 (红色示例)
                             f_dc = [1.0, 0.0, 0.0]
                             f_rest = [0.0] * 45  # 高阶 SH 填充 0

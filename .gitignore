@@ -11,3 +11,4 @@ __pycache__/main.cpython-38.pyc
 /.vscode
 /__pycache__
 origin_point_cloud.ply
+/test1.py
