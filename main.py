@@ -144,7 +144,7 @@ def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
 def sync_packages(meas: MeasureGroup):
     if not imu_en:
         # 确保输入张量形状匹配
-        if points_tensor.shape != normals_tensor.shape or points_tensor.shape[1] != 3:
+        if (points_tensor.shape != normals_tensor.shape and normals_tensor.shape != (0, 3)) or points_tensor.shape[1] != 3:
             raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
         meas.lidar.points = points_tensor
         # meas.lidar_beg_time = time_buffer
