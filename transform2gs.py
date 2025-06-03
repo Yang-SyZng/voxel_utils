@@ -1,11 +1,13 @@
-from main import main, read_yaml
+from main import cloud2voxel, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import math
 import torch
+from typing import Final, List, Dict
+from utils.voxel_map_util import VOXEL_LOC, OctoTree
 
 args = read_yaml("config/cloud2voxel_mapping.yaml")
-voxel_map = main(args)
+voxel_map = cloud2voxel(args)
 
 def rotation_matrix_to_quaternion(R):
     """Convert a 3x3 rotation matrix to a quaternion [w, x, y, z]"""
@@ -46,130 +48,69 @@ dtype = [
     ('scale_0', 'f4'), ('scale_1', 'f4'), ('scale_2', 'f4'),  # 缩放
     ('rot_0', 'f4'), ('rot_1', 'f4'), ('rot_2', 'f4'), ('rot_3', 'f4')  # 四元数
 ]
+def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTree]:
+        """
+        遍历 voxel_map 中的每个 OctoTree 并执行广度优先遍历（BFS）。
+        保存所有不为 None 的 OctoTree 和 OctoTree 叶子节点。
+        返回一个列表，包含所有有效节点。
+        """
+        valid_nodes = []  # 用于保存所有不为 None 的 OctoTree 和叶子节点
+        
+        # 遍历 voxel_map 中每一个 voxel 和它对应的 OctoTree
+        for voxel_loc, octo_tree in voxel_map.items():
 
+            queue = [octo_tree]  # 初始化队列，加入当前的 OctoTree
+            while queue:
+                node = queue.pop(0)  # 从队列的前端移除一个节点
+                # 如果节点是叶子节点，输出信息并添加到 valid_nodes 列表
+                if node.octo_state_ == 0:
+                    valid_nodes.append(node)  # 添加叶子节点到 valid_nodes
+                else:
+                    # 否则，遍历当前节点的子节点
+                    for i, leaf in enumerate(node.leaves_):
+                        if leaf is not None:
+                            queue.append(leaf)  # 将子节点加入队列
+
+        return valid_nodes
+valid_nodes = traverse_octo_tree_bfs(voxel_map)
 # 收集顶点数据，并剔除包含 NaN 的数据
 vertices = []
-for _, value in voxel_map.items():
-    if value.octo_state_ == 0:
-        center = value.plane_ptr_.center.clone().cpu().numpy()
-        radius = value.plane_ptr_.radius
-        # print(radius)
-        normal = value.plane_ptr_.normal.clone().cpu().numpy()
-        normal = np.asarray(normal).reshape(-1)
-        # 归一化法向量
-        norm = np.linalg.norm(normal)
-        if norm > 0:  # 避免除以零
-            normal = normal / norm
-        else:
-            continue  # 如果法向量无效，跳过
-        rotation = np.asarray([value.plane_ptr_.x_normal.clone().cpu().numpy(), value.plane_ptr_.y_normal.clone().cpu().numpy(), value.plane_ptr_.normal.clone().cpu().numpy()])
-        quat = rotation_matrix_to_quaternion(rotation)
-        # 颜色 (红色示例)
-        f_dc = [1.0, 0.0, 0.0]
-        f_rest = [0.0] * 45  # 高阶 SH 填充 0
-        opacity = 1.0
-        # scales = [-1.5*radius, -1.5*radius, -10]  # 薄片
-        scales = [np.log(radius), np.log(radius), -10]  # 薄片
-        # 构造顶点数据
-        vertex = (
-            center[0], center[1], center[2],  # x, y, z
-            normal[0], normal[1], normal[2],  # nx, ny, nz
-            # 0, 0, 0,
-            *f_dc,  # f_dc_0, f_dc_1, f_dc_2
-            *f_rest,  # f_rest_0 到 f_rest_44
-            opacity,  # opacity
-            *scales,  # scale_0, scale_1, scale_2
-            *quat  # rot_0, rot_1, rot_2, rot_3
-        )
-        # print(vertex)
-        # 检查 vertex 中是否包含 NaN
-        if not np.any(np.isnan(vertex)):
-            vertices.append(vertex)
-        else:
-            print(f"Skipping vertex with NaN: center={center}, normal={normal}, quat={quat}")
+for node in valid_nodes:
+    center = node.plane_ptr_.center.clone().cpu().numpy()
+    radius = node.plane_ptr_.radius
+    normal = node.plane_ptr_.normal.clone().cpu().numpy()
+    normal = np.asarray(normal).reshape(-1)
+    # 归一化法向量
+    norm = np.linalg.norm(normal)
+    if norm > 0:  # 避免除以零
+        normal = normal / norm
     else:
-        for leaf_value in value.leaves_:
-            if leaf_value is not None:
-                if leaf_value.octo_state_ == 0:
-                    center = leaf_value.plane_ptr_.center.clone().cpu().numpy()
-                    radius = leaf_value.plane_ptr_.radius
-                    # print(radius)
-                    normal = leaf_value.plane_ptr_.normal.clone().cpu().numpy()
-                    normal = np.asarray(normal).reshape(-1)
-                    # 归一化法向量
-                    norm = np.linalg.norm(normal)
-                    if norm > 0:  # 避免除以零
-                        normal = normal / norm
-                    else:
-                        continue  # 如果法向量无效，跳过
-                    rotation = np.asarray([leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_value.plane_ptr_.normal.clone().cpu().numpy()])
-                    quat = rotation_matrix_to_quaternion(rotation)
-                    # 颜色 (红色示例)
-                    f_dc = [1.0, 0.0, 0.0]
-                    f_rest = [0.0] * 45  # 高阶 SH 填充 0
-                    opacity = 1.0
-                    # scales = [-5.*radius, -5.*radius, -10]  # 薄片
-                    scales = [np.log(radius), np.log(radius), -10]  # 薄片
-                    # 构造顶点数据
-                    vertex = (
-                        center[0], center[1], center[2],  # x, y, z
-                        normal[0], normal[1], normal[2],  # nx, ny, nz
-                        # 0, 0, 0,
-                        *f_dc,  # f_dc_0, f_dc_1, f_dc_2
-                        *f_rest,  # f_rest_0 到 f_rest_44
-                        opacity,  # opacity
-                        *scales,  # scale_0, scale_1, scale_2
-                        *quat  # rot_0, rot_1, rot_2, rot_3
-                    )
-                    # print(vertex)
-                    # 检查 vertex 中是否包含 NaN
-                    if not np.any(np.isnan(vertex)):
-                        vertices.append(vertex)
-                    else:
-                        print(f"Skipping vertex with NaN: center={center}, normal={normal}, quat={quat}")
-                else:
-                    for leaf_leaf_value in leaf_value.leaves_:
-                        if leaf_leaf_value is not None:
-                            center = leaf_leaf_value.plane_ptr_.center.clone().cpu().numpy()
-                            radius = leaf_leaf_value.plane_ptr_.radius
-                            # print(radius)
-                            normal = leaf_leaf_value.plane_ptr_.normal.clone().cpu().numpy()
-                            normal = np.asarray(normal).reshape(-1)
-                            # 归一化法向量
-                            norm = np.linalg.norm(normal)
-                            if norm > 0:  # 避免除以零
-                                normal = normal / norm
-                            else:
-                                continue  # 如果法向量无效，跳过
-                            rotation = np.asarray([leaf_leaf_value.plane_ptr_.x_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.y_normal.clone().cpu().numpy(), leaf_leaf_value.plane_ptr_.normal.clone().cpu().numpy()])
-                            quat = rotation_matrix_to_quaternion(rotation)
-                            # 颜色 (红色示例)
-                            f_dc = [1.0, 0.0, 0.0]
-                            f_rest = [0.0] * 45  # 高阶 SH 填充 0
-                            opacity = 1.0
-                            scales = [np.log(radius), np.log(radius), -10]  # 薄片
-                            # scales = [radius, radius, -10]  # 薄片
-                            # 构造顶点数据
-                            vertex = (
-                                center[0], center[1], center[2],  # x, y, z
-                                normal[0], normal[1], normal[2],  # nx, ny, nz
-                                # 0, 0, 0,
-                                *f_dc,  # f_dc_0, f_dc_1, f_dc_2
-                                *f_rest,  # f_rest_0 到 f_rest_44
-                                opacity,  # opacity
-                                *scales,  # scale_0, scale_1, scale_2
-                                *quat  # rot_0, rot_1, rot_2, rot_3
-                            )
-                            # print(vertex)
-                            # 检查 vertex 中是否包含 NaN
-                            if not np.any(np.isnan(vertex)):
-                                vertices.append(vertex)
-                            else:
-                                print(f"Skipping vertex with NaN: center={center}, normal={normal}, quat={quat}")
-                    else:
-                        continue
-            else:
-                continue
+        continue  # 如果法向量无效，跳过
+    rotation = np.asarray([node.plane_ptr_.x_normal.clone().cpu().numpy(), node.plane_ptr_.y_normal.clone().cpu().numpy(), node.plane_ptr_.normal.clone().cpu().numpy()])
+    quat = rotation_matrix_to_quaternion(rotation)
+    # 颜色 (红色示例)
+    f_dc = [1.0, 0.0, 0.0]
+    f_rest = [0.0] * 45  # 高阶 SH 填充 0
+    opacity = 1.0
+    # scales = [-1.5*radius, -1.5*radius, -10]  # 薄片
+    scales = [np.log(radius), np.log(radius), -10]  # 薄片
+    # 构造顶点数据
+    vertex = (
+        center[0], center[1], center[2],  # x, y, z
+        normal[0], normal[1], normal[2],  # nx, ny, nz
+        # 0, 0, 0,
+        *f_dc,  # f_dc_0, f_dc_1, f_dc_2
+        *f_rest,  # f_rest_0 到 f_rest_44
+        opacity,  # opacity
+        *scales,  # scale_0, scale_1, scale_2
+        *quat  # rot_0, rot_1, rot_2, rot_3
+    )
+    # print(vertex)
+    # 检查 vertex 中是否包含 NaN
+    if not np.any(np.isnan(vertex)):
+        vertices.append(vertex)
+    else:
+        print(f"Skipping vertex with NaN: center={center}, normal={normal}, quat={quat}")
 
 # 转换为 NumPy 结构化数组
 vertex_array = np.array(vertices, dtype=dtype)

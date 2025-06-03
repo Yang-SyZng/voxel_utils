@@ -202,7 +202,7 @@ def RotMtoEuler(rot):
 
     return torch.tensor([x, y, z], device=DEVICE, dtype=DOUBLE)
 
-def main(args: Namespace):
+def cloud2voxel(args: Namespace, input_pcd=None):
     global scanIdx, lid_topic, imu_topic, ranging_cov, angle_cov, gyr_cov_scale, acc_cov_scale
     global imu_en, extrinT, extrinR, NUM_MAX_ITERATIONS, max_points_size, max_cov_points_size
     global layer_point_size, layer_size, max_layer, max_voxel_size, filter_size_surf_min, min_eigen_value
@@ -262,10 +262,17 @@ def main(args: Namespace):
     file_path = args.file_path
     file_format = args.file_format
     
-    pcd = readPointCloud(file_path, file_format)
-    points_tensor = torch.tensor(np.asarray(pcd.points), dtype=DOUBLE, device=DEVICE)
-    normals_tensor = torch.tensor(np.asarray(pcd.normals), dtype=DOUBLE, device=DEVICE)
-    rgb_tensor = torch.tensor(np.asarray(pcd.colors), dtype=DOUBLE, device=DEVICE)
+    if input_pcd is None:
+        pcd = readPointCloud(file_path, file_format)
+        points_tensor = torch.tensor(np.asarray(pcd.points), dtype=DOUBLE, device=DEVICE)
+        normals_tensor = torch.tensor(np.asarray(pcd.normals), dtype=DOUBLE, device=DEVICE)
+        rgb_tensor = torch.tensor(np.asarray(pcd.colors), dtype=DOUBLE, device=DEVICE)
+    else:
+        pcd = input_pcd
+        points_tensor = torch.tensor(pcd.points, dtype=DOUBLE, device=DEVICE)
+        normals_tensor = torch.tensor(pcd.normals, dtype=DOUBLE, device=DEVICE)
+        rgb_tensor = torch.tensor(pcd.colors, dtype=DOUBLE, device=DEVICE)
+    
     
     # solution: 18x1 列向量
     solution = torch.zeros(DIM_STATE, dtype=DOUBLE, device=DEVICE)
@@ -641,7 +648,7 @@ def main(args: Namespace):
 if __name__ == '__main__':
     args = read_yaml("config/cloud2voxel_mapping.yaml")
     # print(args)
-    voxel_map = main(args)
+    voxel_map = cloud2voxel(args)
     voxel_num = 0
     for _, value in voxel_map.items():
         if value.octo_state_ == 0:
