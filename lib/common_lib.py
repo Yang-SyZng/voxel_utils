@@ -1,7 +1,7 @@
 import torch
 from typing import List
-from utils import DOUBLE, DEVICE, FLOAT64
-from lib import DIM_STATE, INIT_COV
+from voxel_utils.utils import DOUBLE, DEVICE, FLOAT64
+from voxel_utils.lib import DIM_STATE, INIT_COV
 import time
 import threading
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\

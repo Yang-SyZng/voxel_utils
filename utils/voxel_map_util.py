@@ -1,7 +1,7 @@
 import torch
 from typing import List, Optional, Dict
-from lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, PointXYZ, pointWithCov, BasedPoint
-from utils import DOUBLE, DEVICE
+from voxel_utils.lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, PointXYZ, pointWithCov, BasedPoint
+from voxel_utils.utils import DOUBLE, DEVICE
 import open3d as o3d
 import numpy as np
 import threading

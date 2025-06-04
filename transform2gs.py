@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation as R
 import math
 import torch
 from typing import Final, List, Dict
-from utils.voxel_map_util import VOXEL_LOC, OctoTree
+from voxel_utils.utils.voxel_map_util import VOXEL_LOC, OctoTree
 
 args = read_yaml("config/cloud2voxel_mapping.yaml")
 voxel_map = cloud2voxel(args)
