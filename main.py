@@ -105,8 +105,6 @@ lidar_buffer = PointXYZINormal()
 # \__|          \_______/     \__|   \__|    \_________|       \__|      \______|     \_______|      \__|   \___|    \_______/
 # Created by zty 2025/05/07
 
-
-
 def read_yaml(yaml_path: str):
     """读取 YAML 配置文件，并转成 argparse.Namespace"""
     with open(yaml_path, 'r', encoding='utf-8') as f:
@@ -331,12 +329,7 @@ def cloud2voxel(args: Namespace, input_pcd=None):
             match_time = 0
             solve_time = 0
             svd_time = 0
-            # for row in state.cov:
-            #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
             state, feats_undistort = p_imu.Process(Measures, state)
-            # print(state.cov)
-            # for row in state.cov:
-            #     print(' '.join(f'{v:.0e}' if v != 0 else '    0' for v in row))
         
             state_propagat = state
             
