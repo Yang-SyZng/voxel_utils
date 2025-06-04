@@ -502,7 +502,7 @@ class ImuProcess:
             # last_imu_ = meas.imu.back();
             return stat, PointXYZINormal()
         else:
-            print("No IMU, use constant velocity model")
+            # print("No IMU, use constant velocity model")
             self.cov_acc = self.cov_acc_scale.clone()
             self.cov_gyr = self.cov_gyr_scale.clone()
             return self.only_propag(meas=meas, state_inout=stat)

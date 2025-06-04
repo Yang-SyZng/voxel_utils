@@ -475,7 +475,7 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
     loc_xyz_unique, inverse_indices = torch.unique(loc_xyz, dim=0, return_inverse=True)
     N_unique = loc_xyz_unique.shape[0]
     
-    print("residual voxel map size:", N_unique)
+    # print("residual voxel map size:", N_unique)
     
     for u in range(N_unique):
         # 找到属于该体素的所有点
