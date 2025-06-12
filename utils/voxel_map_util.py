@@ -125,7 +125,28 @@ class OctoTree:
         self.update_enable_: bool = True
         self.update_cov_enable_: bool = True
         
+    @property
+    def get_aabb(self):
+        """
+        计算并返回该OctoTree节点的轴对齐包围盒(AABB).
 
+        假设 self.quater_length_ 是体素立方体的半边长.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: AABB的最小角和最大角坐标.
+        """
+        # 创建一个和voxel_center_同样数据类型和设备的半边长向量
+        half_length_vec = torch.tensor(
+            [self.quater_length_, self.quater_length_, self.quater_length_],
+            dtype=self.voxel_center_.dtype,
+            device=self.voxel_center_.device
+        )
+        
+        # 计算最小角和最大角
+        min_corner = self.voxel_center_ - half_length_vec
+        max_corner = self.voxel_center_ + half_length_vec
+        
+        return min_corner, max_corner
     
     def init_plane(self, points: pointWithCov):
         global plane_id
