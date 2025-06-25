@@ -1,6 +1,9 @@
 import torch
 from typing import List, Optional, Dict
-from voxel_utils.lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, PointXYZ, pointWithCov, BasedPoint
+
+from scipy.special import pbvv_seq
+
+from voxel_utils.lib.common_lib import StatesGroup, PointXYZINormal, PointXYZI, pointWithCov, PointXYZNormalRGB
 from voxel_utils.utils import DOUBLE, DEVICE
 import open3d as o3d
 import numpy as np
@@ -102,8 +105,10 @@ class OctoTree:
                  max_points_size: int, 
                  max_cov_points_size: int, 
                  planer_threshold: float):
-        self.temp_points_ = pointWithCov()
-        self.new_points_ = pointWithCov()
+        # self.temp_points_ = pointWithCov()
+        # self.new_points_ = pointWithCov()
+        self.temp_points_ = None # type: pointWithCov
+        self.new_points_ = None # type: pointWithCov
         self.plane_ptr_: Plane = Plane()
         self.max_layer_: int = max_layer
         self.layer_: int = layer
@@ -156,12 +161,12 @@ class OctoTree:
         self.plane_ptr_.rotation = torch.zeros((3, 3), dtype=DOUBLE, device=DEVICE) 
         self.plane_ptr_.center = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
         self.plane_ptr_.normal = torch.zeros(3, dtype=DOUBLE, device=DEVICE)
-        self.plane_ptr_.points_size = points.points.shape[0]
+        self.plane_ptr_.points_size = points.points.points.shape[0]
         self.plane_ptr_.radius = 0
         
         # (N, 3, 1)
-        points_tensor = points.points
-        N = points.points.shape[0]
+        points_tensor = points.points.points
+        N = points.points.points.shape[0]
         # (3)
         self.plane_ptr_.center = torch.mean(points_tensor, dim=0)
         # (N, 3)
@@ -263,13 +268,13 @@ class OctoTree:
             self.plane_ptr_.d = -(torch.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)).item()
         
     def init_octo_tree(self):
-        if self.temp_points_.points.shape[0] > self.max_plane_update_threshold_:
+        if self.temp_points_.points.points.shape[0] > self.max_plane_update_threshold_:
             self.init_plane(self.temp_points_)
             if self.plane_ptr_.is_plane:
                 self.octo_state_ = 0
-                if self.temp_points_.points.shape[0] > self.max_cov_points_size_:
+                if self.temp_points_.points.points.shape[0] > self.max_cov_points_size_:
                     self.update_cov_enable_ = False
-                if self.temp_points_.points.shape[0] > self.max_points_size_:
+                if self.temp_points_.points.points.shape[0] > self.max_points_size_:
                     self.update_enable_ = False
             else:
                 self.octo_state_ = 1
@@ -282,14 +287,19 @@ class OctoTree:
         if self.layer_ >= self.max_layer_:
             self.octo_state_ = 0
             return
-        points_tensor = self.temp_points_.points
+        points_tensor = self.temp_points_.points.points
         xyz = (points_tensor > self.voxel_center_).int()  # (N, 3)
         # 计算子节点索引
         leafnums = 4 * xyz[:, 0] + 2 * xyz[:, 1] + xyz[:, 2]  # (N,)
         for leafnum in torch.unique(leafnums):
             leafnum_int: int = leafnum.item()
             mask = (leafnums == leafnum_int)  # 筛选属于当前子节点的点
-            points_in_leaf = pointWithCov(points=self.temp_points_.points[mask], covs=self.temp_points_.covs[mask])
+            cut_points_in_leaf = self.temp_points_.points.points[mask]
+            cut_normals_in_leaf = self.temp_points_.points.normals[mask]
+            cut_rgb_in_leaf = self.temp_points_.points.rgb[mask]
+            cut_voxel_points = PointXYZNormalRGB(points=cut_points_in_leaf, normals=cut_normals_in_leaf, rgb=cut_rgb_in_leaf)
+
+            points_in_leaf = pointWithCov(points=cut_voxel_points, covs=self.temp_points_.covs[mask])
             if self.leaves_[leafnum_int] is None:
                 self.leaves_[leafnum_int] = OctoTree(
                     max_layer=self.max_layer_,
@@ -308,7 +318,7 @@ class OctoTree:
                 self.leaves_[leafnum_int].quater_length_ = self.quater_length_ / 2
 
             # 分配点到子节点
-            self.leaves_[leafnum_int].temp_points_.add_points(points_in_leaf.points, points_in_leaf.covs)
+            self.leaves_[leafnum_int].temp_points_ = points_in_leaf
             self.leaves_[leafnum_int].new_points_num_ += points_in_leaf.size
         
         for i in range(8):
@@ -327,7 +337,7 @@ class OctoTree:
         if not self.init_octo_:
             self.new_points_num_ += p_v.size
             self.all_points_num_ += p_v.size
-            self.temp_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+            self.temp_points_.add_points(p_v)
             if self.temp_points_.size > self.max_plane_update_threshold_:
                 self.init_octo_tree()
         else:
@@ -336,9 +346,9 @@ class OctoTree:
                     self.new_points_num_ += p_v.size
                     self.all_points_num_ += p_v.size
                     if self.update_cov_enable_:
-                        self.temp_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                        self.temp_points_.add_points(p_v)
                     else:
-                        self.new_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                        self.new_points_.add_points(p_v)
                     if self.new_points_num_ > self.update_size_threshold_:
                         if self.update_cov_enable_:
                             self.init_plane(self.temp_points_)
@@ -390,9 +400,9 @@ class OctoTree:
                             self.new_points_num_ += p_v.size
                             self.all_points_num_ += p_v.size
                             if self.update_cov_enable_:
-                                self.temp_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                                self.temp_points_.add_points(p_v)
                             else:
-                                self.new_points_.add_points(points=p_v.points, covs=p_v.covs, point_world=p_v.point_world)
+                                self.new_points_.add_points(p_v)
                             if self.new_points_num_ > self.update_size_threshold_:
                                 if self.update_cov_enable_:
                                     self.init_plane(self.temp_points_)
@@ -434,16 +444,16 @@ def build_single_residual(pv: pointWithCov, current_octo: OctoTree,
     prob: float = 0.0
     single_ptpl: Ptpl = Ptpl()
     radius_k: float = 3.
-    p_w = pv.point_world #(3)
+    p_w = pv.points_world #(3)
     
     if current_octo.plane_ptr_.is_plane:
         plane = current_octo.plane_ptr_
         # (3) - (3) -> (3)
-        p_world_to_center = p_w - plane.center
+        p_world_to_center = p_w.points - plane.center
         # (3) @ (3) + d -> (1)
-        dis_to_plane = torch.abs(torch.sum(plane.normal * p_w) + plane.d)
+        dis_to_plane = torch.abs(torch.sum(plane.normal * p_w.points) + plane.d)
         # (1)
-        dis_to_center = torch.sum((plane.center - p_w) ** 2)
+        dis_to_center = torch.sum((plane.center - p_w.points) ** 2)
         # ()
         range_dis = torch.sqrt(dis_to_center - dis_to_plane ** 2)
         if range_dis <= radius_k * plane.radius:
@@ -484,11 +494,10 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
     all_ptpl_list = [None] * N
     useful_ptpl = [False] * N
     ptpl_list = []
-    index = list(range(pv_list.size))
     mylock = threading.Lock()
 
     # 计算每个点所属的体素索引
-    loc_xyz = pv_list.point_world / voxel_size # torch.Tensor (N, 3)
+    loc_xyz = pv_list.points_world.points / voxel_size # torch.Tensor (N, 3)
     loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
     loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
 
@@ -509,11 +518,9 @@ def buildResidualListOMP(voxel_map: Dict[VOXEL_LOC, OctoTree],
         if position in voxel_map:
             current_octo = voxel_map[position]
             for local_i, idx in enumerate(global_indices):
-                # 创建局部pv
-                pv = pointWithCov()
-                pv.points = pv_list.points[idx]
-                pv.covs = pv_list.covs[idx]
-                pv.point_world = pv_list.point_world[idx]
+                pv_points = PointXYZNormalRGB(points=pv_list.points.points[idx], normals=pv_list.points.normals[idx], rgb=pv_list.points.rgb[idx])
+                pv_points_world = PointXYZNormalRGB(points=pv_list.points_world.points[idx], normals=pv_list.points_world.normals[idx], rgb=pv_list.points_world.rgb[idx])
+                pv = pointWithCov(points=pv_points, covs=pv_list.covs[idx], points_world=pv_points_world)
 
                 is_success, prob, single_ptpl = build_single_residual(pv, current_octo, 0, max_layer, sigma_num)
                 if not is_success:
@@ -563,13 +570,13 @@ def RotMtoEuler(rot: torch.Tensor) -> torch.Tensor:
         z = torch.tensor(0.0)
     return torch.stack([x, y, z])  # 返回欧拉角（roll, pitch, yaw）
 
-def downsample_point_cloud(input_cloud: PointXYZINormal, voxel_size: float = 0.05) -> PointXYZINormal:
+def downsample_point_cloud(input_cloud: PointXYZNormalRGB, voxel_size: float = 0.05) -> PointXYZNormalRGB:
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(input_cloud.points.clone().cpu().numpy())
+    pcd.normals = o3d.utility.Vector3dVector(input_cloud.normals.clone().cpu().numpy())
+    pcd.colors = o3d.utility.Vector3dVector(input_cloud.rgb.clone().cpu().numpy())
     down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
-    down_points = np.asarray(down_pcd.points)  # (M, 3)
-    down_points = torch.tensor(down_points, dtype=DOUBLE, device=DEVICE)
-    return PointXYZINormal(points=down_points)
+    return PointXYZNormalRGB(points=torch.tensor(down_pcd.points), normals=torch.tensor(down_pcd.normals), rgb=torch.tensor(down_pcd.colors))
 
 
 def GetUpdatePlane(current_octo: OctoTree, pub_max_voxel_layer: int, plane_list: List[Plane]):
@@ -652,7 +659,7 @@ def buildVoxelMap(input_points: pointWithCov,
                   feat_map: Dict[VOXEL_LOC, OctoTree], 
                   ) -> Dict[VOXEL_LOC, OctoTree]: 
     # input_points.points.shape (N, 3)
-    loc_xyz = input_points.points / voxel_size # (N, 3)
+    loc_xyz = input_points.points.points / voxel_size # (N, 3)
     loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
     loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
     
@@ -666,7 +673,11 @@ def buildVoxelMap(input_points: pointWithCov,
         
         # 找到属于该体素的所有点
         mask = (inverse_indices == i)
-        points_in_voxel = input_points.points[mask]
+        points_in_voxel = input_points.points.points[mask]
+        rgb_in_voxel = input_points.points.rgb[mask]
+        normals_in_voxel = input_points.points.normals[mask]
+        voxel_points = PointXYZNormalRGB(points=points_in_voxel, rgb=rgb_in_voxel, normals=normals_in_voxel)
+
         covs_in_voxel = input_points.covs[mask]
         
         # 创建体素
@@ -677,39 +688,17 @@ def buildVoxelMap(input_points: pointWithCov,
         feat_map[position].voxel_center_[0] = (0.5 + position.x) * voxel_size
         feat_map[position].voxel_center_[1] = (0.5 + position.y) * voxel_size
         feat_map[position].voxel_center_[2] = (0.5 + position.z) * voxel_size
-        feat_map[position].temp_points_.add_points(points_in_voxel, covs_in_voxel)
+        feat_map[position].temp_points_ = pointWithCov(points=voxel_points, covs=covs_in_voxel)
         feat_map[position].new_points_num_ += len(points_in_voxel)
         feat_map[position].layer_point_size_ = layer_point_size
-
-    # test
-    # position = VOXEL_LOC(-5, -4, -1)
-    # print(feat_map[position].quater_length_)
-    # print(feat_map[position].voxel_center_)
-    # print(feat_map[position].temp_points_.points[0])
-    # print(feat_map[position].temp_points_.covs[0])
-    # print(feat_map[position].new_points_num_)
-    # exit(-1)
     
     # 初始化所有 OctoTree
     for _, value in feat_map.items():
         value.init_octo_tree()
-    # position = VOXEL_LOC(-5, -4, -1)
-    # print(feat_map[position].plane_ptr_.center)
-    # print(feat_map[position].plane_ptr_.covariance)
-    # print(feat_map[position].plane_ptr_.normal)
-    # print(feat_map[position].plane_ptr_.x_normal)
-    # print(feat_map[position].plane_ptr_.y_normal)
-    # print(feat_map[position].plane_ptr_.plane_cov)
-    # print(feat_map[position].plane_ptr_.radius)
-    # print(feat_map[position].plane_ptr_.min_eigen_value)
-    # print(feat_map[position].plane_ptr_.mid_eigen_value)
-    # print(feat_map[position].plane_ptr_.max_eigen_value)
-    # print(feat_map[position].plane_ptr_.d)
-    # print(feat_map[position].plane_ptr_.points_size)
-    # exit(-1)
+
     return feat_map
 
-def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZI:
+def transformLidar(state: StatesGroup, input_cloud: PointXYZNormalRGB) -> PointXYZNormalRGB:
     """
     Transform points from LiDAR frame to world frame.
 
@@ -721,15 +710,15 @@ def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZ
         list: List of PointCloudXYZI objects in world frame.
     """
     points_lidar = input_cloud.points  # 形状 (N, 3)
-    intensities = input_cloud.intensity
+    normals = input_cloud.normals
+    rgb = input_cloud.rgb
     rot_end = state.rot_end  # 形状 (3, 3)
     pos_end = state.pos_end  # 形状 (3)
 
     # 变换：world = rot_end @ lidar + pos_end
     #               (3, 3)   (3, N) + (3, 1)
-    
     points_world = (rot_end @ points_lidar.T + pos_end.unsqueeze(1)).T  # 形状 (N, 3)
-    return PointXYZI(points=points_world, intensity=intensities)
+    return PointXYZNormalRGB(points=points_world, normals=normals, rgb=rgb)
 
 
 def calcBodyCov(points: torch.Tensor, range_inc: float, degree_inc: float) -> torch.Tensor:

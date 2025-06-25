@@ -1,9 +1,7 @@
-import argparse
 from argparse import Namespace
 import yaml
 import torch
-from typing import Final, List, Dict
-import voxel_utils.lib.common_lib as cl
+from typing import Final, Dict
 from voxel_utils.lib.common_lib import StatesGroup, ImuProcess, \
                             PointXYZINormal, PointXYZI, \
                             MeasureGroup, Lidar_offset_to_IMU, \
@@ -14,7 +12,6 @@ from voxel_utils.utils import DOUBLE, DEVICE
 import voxel_utils.utils.voxel_map_util as vx
 import open3d as o3d
 import numpy as np
-import time
 # torch.set_printoptions(precision=5, linewidth=1000)
 torch.set_printoptions(sci_mode=False, precision=12, linewidth=1000)
 #  VV \        VV \   AAAAAAAA\    LL\          UU\     UU\   EEEEEEEEEEE\  SSSSSSSS\
@@ -63,7 +60,7 @@ file_format = None
 pcd = None
 points_tensor: torch.Tensor
 normals_tensor: torch.Tensor
-rgb_tensor = None
+rgb_tensor: torch.Tensor
 solution = torch.zeros(DIM_STATE, dtype=DOUBLE, device=DEVICE)
 G = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
 H_T_H = torch.zeros((DIM_STATE, DIM_STATE), dtype=DOUBLE, device=DEVICE)
@@ -139,15 +136,21 @@ def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
 
     return pcd
 
-def sync_packages(meas: MeasureGroup):
+def sync_packages(meas: MeasureGroup) -> bool:
     if not imu_en:
-        # 确保输入张量形状匹配
-        if (points_tensor.shape != normals_tensor.shape and normals_tensor.shape != (0, 3)) or points_tensor.shape[1] != 3:
-            raise ValueError("points_tensor and normals_tensor must have shape (N, 3) and match in size")
+        # Ensure points_tensor has shape (N, 3)
+        if points_tensor.shape[1] != 3:
+            raise ValueError("points_tensor must have shape (N, 3)")
+        if normals_tensor.shape != points_tensor.shape:
+            raise ValueError("normals_tensor must have the same shape as points_tensor (N, 3)")
+        if rgb_tensor.shape != points_tensor.shape:
+            raise ValueError("rgb_tensor must have the same shape as points_tensor (N, 3)")
+
+        # Assign to meas.lidar
         meas.lidar.points = points_tensor
-        # meas.lidar_beg_time = time_buffer
+        meas.lidar.normals = normals_tensor
+        meas.lidar.rgb = rgb_tensor
         meas.lidar_beg_time = timer.timestamp.toSec()
-        # print(f"sync_packages:{meas.lidar_beg_time}")
         return True
     return False
 
@@ -159,23 +162,12 @@ def standard_pcl_cbk(msg):
         print("lidar loop back, clear buffer")
         # lidar_buffer.clear()
 
-    # 假设这里是点云处理的过程，这里可以根据你的需求处理 msg
-    # PointCloudXYZI 的处理逻辑在这里，简化成一个示例
-    # ptr = {"points": msg['data']}  # 处理后的点云数据
-
     # 将点云数据和时间戳加入到队列中
     # lidar_buffer.append(ptr)
     time_buffer = timer.timestamp.toSec()
     
     # 更新上次的时间戳
     last_timestamp_lidar = time_buffer
-
-    # 这里可以加上其他需要通知的操作（例如多线程通知等）
-    # print(f"Received point cloud at time: {msg['header']['stamp']:.6f}")
-    
-def buildResidualListOMP(voxel_map, max_voxel_size, threshold, max_layer, pv_list, ptpl_list, non_match_list):
-    # 构建残差列表
-    pass
 
 def pointBodyToWorld(pi: torch.Tensor):
     # pi shape (N, 3)
@@ -271,7 +263,6 @@ def cloud2voxel(args: Namespace, input_pcd=None):
         normals_tensor = torch.tensor(pcd.normals, dtype=DOUBLE, device=DEVICE)
         rgb_tensor = torch.tensor(pcd.colors, dtype=DOUBLE, device=DEVICE)
     
-    
     # solution: 18x1 列向量
     solution = torch.zeros(DIM_STATE, dtype=DOUBLE, device=DEVICE)
 
@@ -326,15 +317,11 @@ def cloud2voxel(args: Namespace, input_pcd=None):
     while scanIdx < 2:
         print(f"scanIdx:{scanIdx}")
         if sync_packages(Measures):
-            match_time = 0
-            solve_time = 0
-            svd_time = 0
             state, feats_undistort = p_imu.Process(Measures, state)
         
             state_propagat = state
             
             if is_first_frame:
-                first_lidar_time = Measures.lidar_beg_time
                 is_first_frame = False
             if init_map == False: 
                 #
@@ -343,7 +330,7 @@ def cloud2voxel(args: Namespace, input_pcd=None):
                 # 
                 # 将点云转换到世界坐标系
                 
-                world_lidar = vx.transformLidar(state, feats_undistort)  # 列表形式
+                world_lidar = vx.transformLidar(state, feats_undistort)
                 
                 #
                 # "for" change to "Batch" start
@@ -386,7 +373,7 @@ def cloud2voxel(args: Namespace, input_pcd=None):
                 covs = term1 + term2 + term3  # 形状 (N, 3, 3)
                 
                 # 创建 pv_list
-                pv_list = pointWithCov(points=points_world, covs=covs)
+                pv_list = pointWithCov(points=world_lidar, covs=covs)
 
                 # 计算标准差
                 sigma_pv = torch.diagonal(covs, dim1=1, dim2=2)  # 形状 (N, 3)
@@ -457,11 +444,8 @@ def cloud2voxel(args: Namespace, input_pcd=None):
                 # 转换LiDAR
                 # 假设 transformLidar 已自定义或存在
                 world_lidar = vx.transformLidar(state, feats_down_body)
-
-                pv_list = pointWithCov()
-                
-                pv = pointWithCov(points=feats_down_body.points)
-                pv.update_point_world(world_lidar.points)
+                pv = pointWithCov(points=feats_down_body)
+                pv.update_point_world(world_lidar)
                 cov = body_var.clone()
                 point_crossmat = crossmat_list.clone()
                 rot_var = state.cov[:3, :3]
@@ -472,7 +456,6 @@ def cloud2voxel(args: Namespace, input_pcd=None):
                         t_var
                 pv.covs = cov
                 pv_list = pv
-                var_list = cov
                 
                 # BuildResidualListOMP 已定义
                 ptpl_list = vx.buildResidualListOMP(voxel_map, max_voxel_size, 3.0, max_layer, pv_list)
