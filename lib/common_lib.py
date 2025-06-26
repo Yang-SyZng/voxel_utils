@@ -245,19 +245,26 @@ class pointWithCov:
         else:
             if not isinstance(points.covs, torch.Tensor):
                 raise TypeError("covs must be a torch.Tensor")
+        # print(self.points.points, "测试")
         self.points.points = torch.cat([self.points.points, points.points.points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.points.normals = torch.cat([self.points.normals, points.points.normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.points.rgb = torch.cat([self.points.rgb, points.points.rgb.to(dtype=DOUBLE, device=DEVICE)], dim=0)
         self.covs = torch.cat([self.covs, points.covs.to(dtype=DOUBLE, device=DEVICE)], dim=0)
-        self.points_world.points = torch.cat([self.points_world.points, points.points_world.points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
-        self.points_world.normals = torch.cat([self.points_world.normals, points.points_world.normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
-        self.points_world.rgb = torch.cat([self.points_world.rgb, points.points_world.rgb.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+        if self.points_world is None:
+            self.points_world = PointXYZNormalRGB(points.points_world.points.to(dtype=DOUBLE, device=DEVICE),
+                                                  points.points_world.normals.to(dtype=DOUBLE, device=DEVICE),
+                                                  points.points_world.rgb.to(dtype=DOUBLE, device=DEVICE))
+        else:
+            self.points_world.points = torch.cat([self.points_world.points, points.points_world.points.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+            self.points_world.normals = torch.cat([self.points_world.normals, points.points_world.normals.to(dtype=DOUBLE, device=DEVICE)], dim=0)
+            self.points_world.rgb = torch.cat([self.points_world.rgb, points.points_world.rgb.to(dtype=DOUBLE, device=DEVICE)], dim=0)
 
     @property
     def clear(self):
         self.covs = torch.zeros((0, 3, 3), dtype=DOUBLE, device=DEVICE)
         self.points.clear
-        self.points_world.clear
+        if self.points_world is not None:
+            self.points_world.clear
     @property
     def size(self):
         return self.points.size

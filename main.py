@@ -595,9 +595,7 @@ def cloud2voxel(args: Namespace, input_pcd=None):
             # add the  points to the voxel map
             world_lidar = PointXYZI()
             world_lidar = vx.transformLidar(state, feats_down_body)
-            pv_list = pointWithCov()
-            pv_list.points = feats_down_body.points
-            pv_list.point_world = world_lidar.points
+            pv_list = pointWithCov(points=feats_down_body, points_world=world_lidar)
             cov = body_var
             point_crossmat = crossmat_list
             rot_var = state.cov[:3, :3]

@@ -366,10 +366,10 @@ class OctoTree:
                 if self.layer_ < self.max_layer_:
                     if self.temp_points_.size != 0:
                         self.temp_points_.clear
-                    if self.new_points_.size != 0:
+                    if self.new_points_ is not None and self.new_points_.size != 0:
                         self.temp_points_.clear
                         for i in range(p_v.size):
-                            point = p_v.points[i]
+                            point = p_v.points.points[i]
                             xyz = [0, 0, 0]
                             if point[0] > self.voxel_center_[0]:
                                 xyz[0] = 1
@@ -389,10 +389,12 @@ class OctoTree:
                                                     (2 * xyz[1] - 1) * self.quater_length_,
                                                     (2 * xyz[2] - 1) * self.quater_length_],
                                                     dtype=DOUBLE, device=DEVICE)
+                            point_single = PointXYZNormalRGB(points=point.unsqueeze(0), normals=p_v.points.normals[i], rgb=p_v.points.rgb[i])
+                            point_world_single = PointXYZNormalRGB(points=p_v.points_world.points[i].unsqueeze(0), normals=p_v.points_world.normals[i].unsqueeze(0), rgb=p_v.points_world.rgb[i].unsqueeze(0))
                             pv_single = pointWithCov(
-                                points=point.unsqueeze(0),
+                                points=point_single,
                                 covs=p_v.covs[i].unsqueeze(0),
-                                point_world=p_v.point_world[i].unsqueeze(0)
+                                point_world=point_world_single
                             )
                             self.leaves_[leafnum].UpdateOctoTree(pv_single)
                     else:
@@ -469,7 +471,7 @@ def build_single_residual(pv: pointWithCov, current_octo: OctoTree,
                 this_prob = (1.0 / torch.sqrt(sigma_l)) * torch.exp(-0.5 * (dis_to_plane ** 2) / sigma_l)
                 if this_prob > prob:
                     prob = this_prob
-                    single_ptpl.point = pv.points
+                    single_ptpl.point = pv.points.points
                     single_ptpl.plane_cov = plane.plane_cov
                     single_ptpl.normal = plane.normal
                     single_ptpl.center = plane.center
@@ -622,7 +624,7 @@ def updateVoxelMap(input_points: pointWithCov,
                   feat_map: Dict[VOXEL_LOC, OctoTree], 
                   ) -> Dict[VOXEL_LOC, OctoTree]:
     plsize = input_points.size
-    loc_xyz = input_points.points / voxel_size
+    loc_xyz = input_points.points.points / voxel_size
     loc_xyz = torch.where(loc_xyz < 0, loc_xyz - 1.0, loc_xyz)  # 处理负数
     loc_xyz = loc_xyz.to(dtype=torch.int64, device=DEVICE)
     loc_xyz_unique, inverse_indices = torch.unique(loc_xyz, dim=0, return_inverse=True)
@@ -634,12 +636,16 @@ def updateVoxelMap(input_points: pointWithCov,
         if position in feat_map:
             # 找到属于该体素的所有点
             mask = (inverse_indices == i)
-            p_v = pointWithCov(points=input_points.points[mask], covs=input_points.covs[mask], point_world=input_points.point_world[mask])
+            masked_points = PointXYZNormalRGB(points=input_points.points.points[mask], normals=input_points.points.normals[mask], rgb=input_points.points.rgb[mask])
+            masked_points_world = PointXYZNormalRGB(points=input_points.points_world.points[mask], normals=input_points.points_world.normals[mask], rgb=input_points.points_world.rgb[mask])
+            p_v = pointWithCov(points=masked_points, covs=input_points.covs[mask], points_world=masked_points_world)
             feat_map[position].UpdateOctoTree(p_v)
         else:
             # 找到属于该体素的所有点
             mask = (inverse_indices == i)
-            p_v = pointWithCov(points=input_points.points[mask], covs=input_points.covs[mask], point_world=input_points.point_world[mask])
+            masked_points = PointXYZNormalRGB(points=input_points.points.points[mask], normals=input_points.points.normals[mask], rgb=input_points.points.rgb[mask])
+            masked_points_world = PointXYZNormalRGB(points=input_points.points_world.points[mask], normals=input_points.points_world.normals[mask], rgb=input_points.points_world.rgb[mask])
+            p_v = pointWithCov(points=masked_points, covs=input_points.covs[mask], points_world=masked_points_world)
             
             # 创建体素
             octo_tree = OctoTree(max_layer, 0, layer_point_size, max_points_size,
