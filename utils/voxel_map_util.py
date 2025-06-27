@@ -727,7 +727,7 @@ def transformLidar(state: StatesGroup, input_cloud: PointXYZINormal) -> PointXYZ
 
     # 变换：world = rot_end @ lidar + pos_end
     #               (3, 3)   (3, N) + (3, 1)
-    
+    # print(rot_end, pos_end)
     points_world = (rot_end @ points_lidar.T + pos_end.unsqueeze(1)).T  # 形状 (N, 3)
     return PointXYZI(points=points_world, intensity=intensities)
 
