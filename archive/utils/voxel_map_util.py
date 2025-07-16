@@ -267,10 +267,10 @@ class OctoTree:
             self.init_plane(self.temp_points_)
             if self.plane_ptr_.is_plane:
                 self.octo_state_ = 0
-                if self.temp_points_.points.shape[0] > self.max_cov_points_size_:
-                    self.update_cov_enable_ = False
-                if self.temp_points_.points.shape[0] > self.max_points_size_:
-                    self.update_enable_ = False
+                # if self.temp_points_.points.shape[0] > self.max_cov_points_size_:
+                #     self.update_cov_enable_ = False
+                # if self.temp_points_.points.shape[0] > self.max_points_size_:
+                #     self.update_enable_ = False
             else:
                 self.octo_state_ = 1
                 self.cut_octo_tree()

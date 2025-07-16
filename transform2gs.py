@@ -1,10 +1,8 @@
-from main import cloud2voxel, read_yaml
+from cloud2voxel import cloud2voxel, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import math
-import torch
 from typing import Final, List, Dict
-from voxel_utils.utils.voxel_map_util import VOXEL_LOC, OctoTree
+from voxel_utils import VOXEL_LOC, OctoTree
 
 args = read_yaml("config/cloud2voxel_mapping.yaml")
 voxel_map = cloud2voxel(args)
@@ -57,7 +55,7 @@ def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTre
         valid_nodes = []  # 用于保存所有不为 None 的 OctoTree 和叶子节点
         
         # 遍历 voxel_map 中每一个 voxel 和它对应的 OctoTree
-        for voxel_loc, octo_tree in voxel_map.items():
+        for _, octo_tree in voxel_map.items():
 
             queue = [octo_tree]  # 初始化队列，加入当前的 OctoTree
             while queue:
@@ -75,18 +73,24 @@ def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTre
 valid_nodes = traverse_octo_tree_bfs(voxel_map)
 # 收集顶点数据，并剔除包含 NaN 的数据
 vertices = []
+num = 0
+print(len(valid_nodes))
 for node in valid_nodes:
-    center = node.plane_ptr_.center.clone().cpu().numpy()
+    try:
+        center = node.plane_ptr_.center
+    except AttributeError:
+        num +=1
+        continue
+    center = node.plane_ptr_.center
+    normal = node.plane_ptr_.normal
     radius = node.plane_ptr_.radius
-    normal = node.plane_ptr_.normal.clone().cpu().numpy()
-    normal = np.asarray(normal).reshape(-1)
     # 归一化法向量
     norm = np.linalg.norm(normal)
     if norm > 0:  # 避免除以零
         normal = normal / norm
     else:
         continue  # 如果法向量无效，跳过
-    rotation = np.asarray([node.plane_ptr_.x_normal.clone().cpu().numpy(), node.plane_ptr_.y_normal.clone().cpu().numpy(), node.plane_ptr_.normal.clone().cpu().numpy()])
+    rotation = np.asarray([node.plane_ptr_.x_normal, node.plane_ptr_.y_normal, node.plane_ptr_.normal])
     quat = rotation_matrix_to_quaternion(rotation)
     # 颜色 (红色示例)
     f_dc = [1.0, 0.0, 0.0]
@@ -111,10 +115,8 @@ for node in valid_nodes:
         vertices.append(vertex)
     else:
         print(f"Skipping vertex with NaN: center={center}, normal={normal}, quat={quat}")
-
 # 转换为 NumPy 结构化数组
 vertex_array = np.array(vertices, dtype=dtype)
-print(len(vertex_array))
 # 写入 PLY 文件
 header = f"""ply
 format binary_little_endian 1.0
@@ -141,7 +143,7 @@ end_header
 """
 
 # 写入二进制文件
-with open("output/point_cloud/point_cloud.ply", "wb") as f:
+with open("points3D.ply", "wb") as f:
     # 写入头部（ASCII 格式）
     f.write(header.encode('ascii'))
     # 写入二进制顶点数据

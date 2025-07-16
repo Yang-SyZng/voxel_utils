@@ -1,4 +1,4 @@
-from main import cloud2voxel, read_yaml
+from archive.main import cloud2voxel, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import math

@@ -3,3 +3,6 @@ __pycache__
 /SIBR_viewers
 /.vscode
 /test
+./archive
+point_cloud.ply
+points3D.ply
