@@ -142,7 +142,7 @@ end_header
 """
 
 # 写入二进制文件
-with open("points3D.ply", "wb") as f:
+with open("output/point_cloud/point_cloud.ply", "wb") as f:
     # 写入头部（ASCII 格式）
     f.write(header.encode('ascii'))
     # 写入二进制顶点数据

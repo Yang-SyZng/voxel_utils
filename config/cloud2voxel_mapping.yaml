@@ -1,5 +1,5 @@
 pointcloud:
-  file_path: "./point_cloud.ply"  # 点云文件路径
+  file_path: "./input.ply"  # 点云文件路径
   file_format: "ply"  # 点云文件格式，可以选择 pcd 或 ply
 
 mapping:

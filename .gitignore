@@ -4,5 +4,3 @@ __pycache__
 /.vscode
 /test
 ./archive
-point_cloud.ply
-points3D.ply

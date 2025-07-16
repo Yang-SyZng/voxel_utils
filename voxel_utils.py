@@ -3,6 +3,7 @@ import numpy as np
 import open3d as o3d
 import torch
 import numpy as np
+from prosci import main
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
         self.x = xyz[0]
@@ -17,13 +18,11 @@ class VOXEL_LOC:
     
 class Plane:
     def __init__(self):
-        # 
         self.center: np.ndarray
         self.normal: np.ndarray
         self.y_normal: np.ndarray
         self.x_normal: np.ndarray
         self.covariance: np.ndarray
-        self.plane_cov: np.ndarray
         self.rotation: np.ndarray
 
         self.radius: float = 0.0
@@ -76,64 +75,75 @@ class OctoTree:
         # (N, 3, 1)
         points = np.asarray(pcd.points)
         N = points.shape[0]
-        
-        self.plane_ptr_.plane_cov = np.zeros((6, 6), dtype=np.float64)
-        self.plane_ptr_.covariance = np.zeros((3, 3), dtype=np.float64)
-        self.plane_ptr_.rotation = np.zeros((3, 3), dtype=np.float64)
-        self.plane_ptr_.center = np.zeros(3, dtype=np.float64)
-        self.plane_ptr_.normal = np.zeros(3, dtype=np.float64)
-        self.plane_ptr_.points_size = N
-        self.plane_ptr_.radius = 0
-        
-        # (3)
+        a, b, c, d = main(data=points)
+        normal = np.array([a, b, c], dtype=np.float64)
+        norm = np.linalg.norm(normal)
+        normal = normal / norm if norm != 0 else normal
+        print(normal)
+        # 旋转矩阵
+        t = np.array([1, 0, 0])  # 选择一个非平行向量
+        u = np.cross(normal, t)
+        u = u / np.linalg.norm(u)  # 归一化
+        v = np.cross(normal, u)
+        v = v / np.linalg.norm(v)  # 归一化
+        rotation = np.column_stack((u, v, normal))
+        # self.plane_ptr_.covariance = np.zeros((3, 3), dtype=np.float64)
+        self.plane_ptr_.rotation = rotation
         self.plane_ptr_.center = points.mean(axis=0)
-        # (N, 3)
-        centered_points = points - self.plane_ptr_.center
-        # (3, N) @ (N, 3) -> (3, 3)
-        self.plane_ptr_.covariance = centered_points.T @ centered_points / N
+        self.plane_ptr_.normal = normal
+        self.plane_ptr_.points_size = N
+        # self.plane_ptr_.radius = 0
+        
+        # # (3)
+        # self.plane_ptr_.center = points.mean(axis=0)
+        # # (N, 3)
+        # centered_points = points - self.plane_ptr_.center
+        # # (3, N) @ (N, 3) -> (3, 3)
+        # self.plane_ptr_.covariance = centered_points.T @ centered_points / N
         
 
-        # 特征值分解
-        eigenvalues, eigenvectors = np.linalg.eigh(self.plane_ptr_.covariance)
-        evals = eigenvalues  # shape: (3,)
-        evecs = -eigenvectors  # shape: (3, 3)，每列是一个特征向量
-        self.plane_ptr_.rotation = evecs
-        # 找最小/中间/最大特征值的索引
-        evals_min = np.argmin(evals)
-        evals_max = np.argmax(evals)
-        evals_mid = 3 - evals_min - evals_max  # 总是能拿到第三个
-        # 提取对应的特征向量
-        evec_min = evecs[:, evals_min]  # shape: (3,)
-        evec_mid = evecs[:, evals_mid]
-        evec_max = evecs[:, evals_max]
-        if evals[evals_min] < self.planer_threshold_:
-            self.plane_ptr_.normal = evec_min
-            self.plane_ptr_.y_normal = evec_mid
-            self.plane_ptr_.x_normal = evec_max
-            self.plane_ptr_.min_eigen_value = evals[evals_min].item()
-            self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
-            self.plane_ptr_.max_eigen_value = evals[evals_max].item()
-            self.plane_ptr_.radius = np.sqrt(evals[evals_max])
-            self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
-            self.plane_ptr_.is_plane = True
-            if not self.plane_ptr_.is_init:
-                self.plane_ptr_.is_init = True
+        # # 特征值分解
+        # eigenvalues, eigenvectors = np.linalg.eigh(self.plane_ptr_.covariance)
+        # evals = eigenvalues  # shape: (3,)
+        # evecs = -eigenvectors  # shape: (3, 3)，每列是一个特征向量
+        # self.plane_ptr_.rotation = evecs
+        # # 找最小/中间/最大特征值的索引
+        # evals_min = np.argmin(evals)
+        # evals_max = np.argmax(evals)
+        # evals_mid = 3 - evals_min - evals_max  # 总是能拿到第三个
+        # # 提取对应的特征向量
+        # evec_min = evecs[:, evals_min]  # shape: (3,)
+        # evec_mid = evecs[:, evals_mid]
+        # evec_max = evecs[:, evals_max]
+        
+        # if evals[evals_min] < self.planer_threshold_:
+        #     self.plane_ptr_.normal = evec_min
+        #     self.plane_ptr_.y_normal = evec_mid
+        #     self.plane_ptr_.x_normal = evec_max
+        #     self.plane_ptr_.min_eigen_value = evals[evals_min].item()
+        #     self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
+        #     self.plane_ptr_.max_eigen_value = evals[evals_max].item()
+        #     self.plane_ptr_.radius = np.sqrt(evals[evals_max])
+        #     self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
+        #     self.plane_ptr_.is_plane = True
+        #     if not self.plane_ptr_.is_init:
+        #         self.plane_ptr_.is_init = True
 
             
-        else:
-            if not self.plane_ptr_.is_init:
-                self.plane_ptr_.is_init = True
-            self.plane_ptr_.is_plane = False
-            self.plane_ptr_.normal = -1 * evec_min
-            self.plane_ptr_.y_normal = -evec_mid
-            self.plane_ptr_.x_normal = -evec_max
-            self.plane_ptr_.min_eigen_value = evals[evals_min].item()
-            self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
-            self.plane_ptr_.max_eigen_value = evals[evals_max].item()
-            # self.plane_ptr_.radius = np.sqrt(evals[evals_max])
-            distances = np.linalg.norm(points - self.plane_ptr_.center, axis=1)  # 欧氏距离
-            self.plane_ptr_.radius = distances.max()
-            self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
+        # else:
+        #     if not self.plane_ptr_.is_init:
+        #         self.plane_ptr_.is_init = True
+        #     self.plane_ptr_.is_plane = False
+        #     self.plane_ptr_.normal = -1 * evec_min
+        #     self.plane_ptr_.y_normal = -evec_mid
+        #     self.plane_ptr_.x_normal = -evec_max
+        #     self.plane_ptr_.min_eigen_value = evals[evals_min].item()
+        #     self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
+        #     self.plane_ptr_.max_eigen_value = evals[evals_max].item()
+        #     # self.plane_ptr_.radius = np.sqrt(evals[evals_max])
+        #     distances = np.linalg.norm(points - self.plane_ptr_.center, axis=1)  # 欧氏距离
+        #     self.plane_ptr_.radius = distances.max()
+        #     self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
             
     def init_octo_tree(self):
         if self.points_num_ > self.max_plane_update_threshold_:
