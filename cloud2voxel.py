@@ -44,13 +44,9 @@ def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
 def cloud2voxel(args: Namespace, input_pcd=None):
     file_path = args.file_path
     file_format = args.file_format
-    
-    # mapping algorithm params
-    layer_point_size = args.layer_point_size
-    layer_size = layer_point_size
+
     max_layer = args.max_layer
     max_voxel_size = args.voxel_size
-    filter_size_surf_min = args.down_sample_size
     min_eigen_value = args.plannar_threshold # min_eigen_value
     
     voxel_map: Dict[VOXEL_LOC, OctoTree] = {}

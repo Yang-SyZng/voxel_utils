@@ -73,13 +73,12 @@ def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTre
 valid_nodes = traverse_octo_tree_bfs(voxel_map)
 # 收集顶点数据，并剔除包含 NaN 的数据
 vertices = []
-num = 0
 print(len(valid_nodes))
 for node in valid_nodes:
     try:
         center = node.plane_ptr_.center
+
     except AttributeError:
-        num +=1
         continue
     center = node.plane_ptr_.center
     normal = node.plane_ptr_.normal

@@ -130,7 +130,9 @@ class OctoTree:
             self.plane_ptr_.min_eigen_value = evals[evals_min].item()
             self.plane_ptr_.mid_eigen_value = evals[evals_mid].item()
             self.plane_ptr_.max_eigen_value = evals[evals_max].item()
-            self.plane_ptr_.radius = np.sqrt(evals[evals_max])
+            # self.plane_ptr_.radius = np.sqrt(evals[evals_max])
+            distances = np.linalg.norm(points - self.plane_ptr_.center, axis=1)  # 欧氏距离
+            self.plane_ptr_.radius = distances.max()
             self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
             
     def init_octo_tree(self):
