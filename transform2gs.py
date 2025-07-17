@@ -89,7 +89,8 @@ for node in valid_nodes:
         normal = normal / norm
     else:
         continue  # 如果法向量无效，跳过
-    rotation = np.asarray([node.plane_ptr_.x_normal, node.plane_ptr_.y_normal, node.plane_ptr_.normal])
+    rotation = node.plane_ptr_.rotation
+    # rotation = np.asarray([node.plane_ptr_.x_normal, node.plane_ptr_.y_normal, node.plane_ptr_.normal])
     quat = rotation_matrix_to_quaternion(rotation)
     # 颜色 (红色示例)
     f_dc = [1.0, 0.0, 0.0]
@@ -101,7 +102,6 @@ for node in valid_nodes:
     vertex = (
         center[0], center[1], center[2],  # x, y, z
         normal[0], normal[1], normal[2],  # nx, ny, nz
-        # 0, 0, 0,
         *f_dc,  # f_dc_0, f_dc_1, f_dc_2
         *f_rest,  # f_rest_0 到 f_rest_44
         opacity,  # opacity
@@ -142,7 +142,7 @@ end_header
 """
 
 # 写入二进制文件
-with open("output/point_cloud/point_cloud.ply", "wb") as f:
+with open("./point_cloud.ply", "wb") as f:
     # 写入头部（ASCII 格式）
     f.write(header.encode('ascii'))
     # 写入二进制顶点数据

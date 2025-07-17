@@ -1,12 +1,10 @@
-import argparse
 from argparse import Namespace
 import yaml
-import torch
-from typing import Final, List, Dict
+from typing import Dict
 import open3d as o3d
-import numpy as np
 import voxel_utils as vx
 from voxel_utils import VOXEL_LOC, OctoTree
+
 def read_yaml(yaml_path: str):
     """读取 YAML 配置文件，并转成 argparse.Namespace"""
     with open(yaml_path, 'r', encoding='utf-8') as f:
@@ -44,17 +42,16 @@ def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
 def cloud2voxel(args: Namespace, input_pcd=None):
     file_path = args.file_path
     file_format = args.file_format
-
-    max_layer = args.max_layer
-    max_voxel_size = args.voxel_size
-    min_eigen_value = args.plannar_threshold # min_eigen_value
     
     voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
+    
     if input_pcd is None:
         pcd = readPointCloud(file_path, file_format)
     else:
         pcd = input_pcd
-    vx.buildVoxelMap(pcd, max_voxel_size, max_layer, min_eigen_value, voxel_map)
+        
+    vx.buildVoxelMap(args, pcd, voxel_map)
+    
     return voxel_map
 if __name__ == '__main__':
     args = read_yaml("config/cloud2voxel_mapping.yaml")

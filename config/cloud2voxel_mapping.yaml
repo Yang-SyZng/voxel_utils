@@ -3,7 +3,8 @@ pointcloud:
   file_format: "ply"  # 点云文件格式，可以选择 pcd 或 ply
 
 mapping:
-    voxel_size: 1.0
-    max_layer: 2                # 4 layer, 0, 1, 2, 3
-    layer_point_size: [5, 5, 5, 5, 5]
+    voxel_size: 2.0
+    max_layer: 4                # 4 layer, 0, 1, 2, 3
+    outliers_threshold: 5
     plannar_threshold: 0.01
+    
