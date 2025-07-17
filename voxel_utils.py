@@ -3,6 +3,7 @@ import numpy as np
 import open3d as o3d
 import numpy as np
 from argparse import Namespace
+from tqdm import tqdm
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
         self.x = xyz[0]
@@ -218,7 +219,7 @@ def buildVoxelMap(args: Namespace,
     loc_xyz = np.floor(np.asarray(pcd.points) / voxel_size).astype(np.int64)
     xyz_unique, inverse_indices, _ = np.unique(loc_xyz, return_inverse=True, return_counts=True, axis=0)
     print("voxel map size:", len(xyz_unique))
-    for i, xyz in enumerate(xyz_unique):
+    for i, xyz in enumerate(tqdm(xyz_unique, desc="Building OctoTrees")):
         position = VOXEL_LOC(xyz)
         mask = (inverse_indices == i)
         idx = np.where(mask)[0]
@@ -232,7 +233,7 @@ def buildVoxelMap(args: Namespace,
         feat_map[position].quater_length_ = voxel_size / 2
         feat_map[position].voxel_center_ = (0.5 + np.array([position.x, position.y, position.z])) * voxel_size
     
-    for _, value in feat_map.items():
+    for _, value in tqdm(feat_map.items(), desc="Initializing OctoTrees"):
         value.init_octo_tree()
         
     return feat_map
