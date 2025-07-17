@@ -1,4 +1,4 @@
-from cloud2voxel import cloud2voxel, read_yaml
+from voxel_utils import cloud2voxel, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from typing import Final, List, Dict

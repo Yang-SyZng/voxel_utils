@@ -2,8 +2,7 @@ from argparse import Namespace
 import yaml
 from typing import Dict
 import open3d as o3d
-import voxel_utils as vx
-from voxel_utils import VOXEL_LOC, OctoTree
+from .voxel_utils import VOXEL_LOC, OctoTree, buildVoxelMap
 
 def read_yaml(yaml_path: str):
     """读取 YAML 配置文件，并转成 argparse.Namespace"""
@@ -50,7 +49,7 @@ def cloud2voxel(args: Namespace, input_pcd=None):
     else:
         pcd = input_pcd
         
-    vx.buildVoxelMap(args, pcd, voxel_map)
+    buildVoxelMap(args, pcd, voxel_map)
     
     return voxel_map
 if __name__ == '__main__':
