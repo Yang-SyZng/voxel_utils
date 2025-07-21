@@ -4,6 +4,7 @@ import open3d as o3d
 import numpy as np
 from argparse import Namespace
 from tqdm import tqdm
+
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
         self.x = xyz[0]
