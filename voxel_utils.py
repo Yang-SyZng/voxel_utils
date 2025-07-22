@@ -4,19 +4,29 @@ import open3d as o3d
 import numpy as np
 from argparse import Namespace
 from tqdm import tqdm
-
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
-        self.x = xyz[0]
-        self.y = xyz[1]
-        self.z = xyz[2]
+        self.x = int(xyz[0])
+        self.y = int(xyz[1])
+        self.z = int(xyz[2])
+
     def __eq__(self, other):
         if not isinstance(other, VOXEL_LOC):
             return NotImplemented
-        return self.x == other.x and self.y == other.y and self.z == other.z
+        return (self.x, self.y, self.z) == (other.x, other.y, other.z)
+
     def __hash__(self):
         return hash((self.x, self.y, self.z))
+
+    def __repr__(self):
+        return f"VOXEL_LOC({self.x}, {self.y}, {self.z})"
+
     
+class Planes:
+    def __init__(self):
+        self.center = []
+        self.normal = []
+        self.d = []
 class Plane:
     def __init__(self):
         self.center: np.ndarray
@@ -54,7 +64,7 @@ class OctoTree:
         #叶子体素
         self.octo_state_: int = 0   # 0: end of tree, 1: not end
         self.leaves_: List[Optional[OctoTree]] = [None for _ in range(8)]
-        
+
         # 离群点阈值
         self.outliers_threshold: int = outliers_threshold
         
@@ -106,58 +116,6 @@ class OctoTree:
             self.plane_ptr_.is_plane = True
         if not self.plane_ptr_.is_init:
             self.plane_ptr_.is_init = True
-                
-    # def init_plane(self, pcd: o3d.geometry.PointCloud):
-    #     # (N, 3, 1)
-    #     points = np.asarray(pcd.points)
-    #     N = points.shape[0]
-        
-    #     self.plane_ptr_.plane_cov = np.zeros((6, 6), dtype=np.float64)
-    #     self.plane_ptr_.covariance = np.zeros((3, 3), dtype=np.float64)
-    #     self.plane_ptr_.rotation = np.zeros((3, 3), dtype=np.float64)
-    #     self.plane_ptr_.center = np.zeros(3, dtype=np.float64)
-    #     self.plane_ptr_.normal = np.zeros(3, dtype=np.float64)
-    #     self.plane_ptr_.points_size = N
-    #     self.plane_ptr_.radius = 0
-        
-    #     # (3)
-    #     self.plane_ptr_.center = points.mean(axis=0)
-    #     # (N, 3)
-    #     centered_points = points - self.plane_ptr_.center
-    #     # (3, N) @ (N, 3) -> (3, 3)
-    #     self.plane_ptr_.covariance = centered_points.T @ centered_points / N
-        
-    #     # 特征值分解
-    #     eigenvalues, eigenvectors = np.linalg.eigh(self.plane_ptr_.covariance)
-    #     evals = eigenvalues  # shape: (3,)
-    #     evecs = -eigenvectors  # shape: (3, 3)，每列是一个特征向量
-    #     self.plane_ptr_.rotation = evecs
-    #     # 找最小/中间/最大特征值的索引
-    #     evals_min = np.argmin(evals)
-    #     evals_max = np.argmax(evals)
-    #     evals_mid = 3 - evals_min - evals_max  # 总是能拿到第三个
-    #     # 提取对应的特征向量
-    #     evec_min = evecs[:, evals_min]  # shape: (3,)
-    #     evec_mid = evecs[:, evals_mid]
-    #     evec_max = evecs[:, evals_max]
-    #     if evals[evals_min] < self.planer_threshold_:
-    #         self.plane_ptr_.normal = evec_min
-    #         self.plane_ptr_.y_normal = evec_mid
-    #         self.plane_ptr_.x_normal = evec_max
-    #         self.plane_ptr_.radius = np.sqrt(evals[evals_max])
-    #         self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
-    #         self.plane_ptr_.is_plane = True
-    #         if not self.plane_ptr_.is_init:
-    #             self.plane_ptr_.is_init = True
-    #     else:
-    #         if not self.plane_ptr_.is_init:
-    #             self.plane_ptr_.is_init = True
-    #         self.plane_ptr_.is_plane = False
-    #         self.plane_ptr_.normal = -1 * evec_min
-    #         self.plane_ptr_.y_normal = -evec_mid
-    #         self.plane_ptr_.x_normal = -evec_max
-    #         self.plane_ptr_.radius = np.sqrt(evals[evals_max])
-    #         self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
             
     def init_octo_tree(self):
         if self.points_num_ > self.max_plane_update_threshold_:

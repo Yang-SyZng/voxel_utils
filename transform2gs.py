@@ -1,9 +1,9 @@
-from voxel_utils import cloud2voxel, read_yaml
+from . import cloud2voxel, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from typing import Final, List, Dict
 from voxel_utils import VOXEL_LOC, OctoTree
-
+from tqdm import tqdm
 args = read_yaml("config/cloud2voxel_mapping.yaml")
 voxel_map = cloud2voxel(args)
 
@@ -47,16 +47,10 @@ dtype = [
     ('rot_0', 'f4'), ('rot_1', 'f4'), ('rot_2', 'f4'), ('rot_3', 'f4')  # 四元数
 ]
 def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTree]:
-        """
-        遍历 voxel_map 中的每个 OctoTree 并执行广度优先遍历（BFS）。
-        保存所有不为 None 的 OctoTree 和 OctoTree 叶子节点。
-        返回一个列表，包含所有有效节点。
-        """
         valid_nodes = []  # 用于保存所有不为 None 的 OctoTree 和叶子节点
         
         # 遍历 voxel_map 中每一个 voxel 和它对应的 OctoTree
-        for _, octo_tree in voxel_map.items():
-
+        for _, octo_tree in tqdm(voxel_map.items()):
             queue = [octo_tree]  # 初始化队列，加入当前的 OctoTree
             while queue:
                 node = queue.pop(0)  # 从队列的前端移除一个节点
@@ -70,6 +64,7 @@ def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTre
                             queue.append(leaf)  # 将子节点加入队列
 
         return valid_nodes
+
 valid_nodes = traverse_octo_tree_bfs(voxel_map)
 # 收集顶点数据，并剔除包含 NaN 的数据
 vertices = []
