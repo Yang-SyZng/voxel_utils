@@ -27,6 +27,8 @@ class Planes:
         self.center = []
         self.normal = []
         self.d = []
+        self.complex = []
+
 class Plane:
     def __init__(self):
         self.center: np.ndarray
@@ -50,6 +52,7 @@ class OctoTree:
                  outliers_threshold: int):
         # 体素信息
         self.voxel_center_: np.ndarray
+        self.complex: float = 0.0
         self.quater_length_: float = 0.0
         self.max_layer_: int = max_layer
         self.layer_: int = layer
@@ -60,7 +63,6 @@ class OctoTree:
         # 体素平面
         self.plane_ptr_: Plane = Plane()
         self.planer_threshold_: float = planer_threshold
-        
         #叶子体素
         self.octo_state_: int = 0   # 0: end of tree, 1: not end
         self.leaves_: List[Optional[OctoTree]] = [None for _ in range(8)]
@@ -76,7 +78,6 @@ class OctoTree:
         self.plane_ptr_.rotation = np.zeros((3, 3), dtype=np.float64)
         self.plane_ptr_.normal = np.zeros((3, ), dtype=np.float64)
         self.plane_ptr_.radius = 0
-        
         # 提取平面
         plane_model, inliers = pcd.segment_plane(distance_threshold=0.01,
                                                 ransac_n=3,
@@ -112,8 +113,11 @@ class OctoTree:
             denominator = np.sqrt(a ** 2 + b ** 2 + c ** 2)
             distances = numerator / denominator
             self.plane_ptr_.is_plane = distances.mean() <= 0.02
+            if distances.mean() <= 0.02:
+                self.complex = compute_complexity(np.asarray(pcd.normals))
         else:
             self.plane_ptr_.is_plane = True
+            self.complex = compute_complexity(np.asarray(pcd.normals))
         if not self.plane_ptr_.is_init:
             self.plane_ptr_.is_init = True
             
@@ -140,7 +144,6 @@ class OctoTree:
             mask = (inverse_indices == i)
             idx = np.where(mask)[0]
             pcd_in_leaf_voxel = pcd.select_by_index(idx)
-
             if self.leaves_[i] is None:
                 self.leaves_[i] = OctoTree(pcd=pcd_in_leaf_voxel,
                                            max_layer=self.max_layer_,
@@ -196,3 +199,11 @@ def buildVoxelMap(args: Namespace,
         value.init_octo_tree()
         
     return feat_map
+
+def compute_complexity(normals: np.ndarray) -> float:
+    if normals.shape[0] <= 1:
+        return 0.0
+
+    normals = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-6)
+    mean_vector = np.mean(normals, axis=0)
+    return np.linalg.norm(mean_vector)
