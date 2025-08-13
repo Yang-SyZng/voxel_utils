@@ -1,11 +1,59 @@
-from . import cloud2voxel, read_yaml
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from typing import Final, List, Dict
-from voxel_utils import VOXEL_LOC, OctoTree
+from voxel_utils import VOXEL_LOC, OctoTree, buildVoxelMap
 from tqdm import tqdm
-args = read_yaml("config/cloud2voxel_mapping.yaml")
-voxel_map = cloud2voxel(args)
+import yaml
+import open3d as o3d
+from argparse import Namespace
+def read_yaml(yaml_path: str):
+    """读取 YAML 配置文件，并转成 argparse.Namespace"""
+    with open(yaml_path, 'r', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
+
+    # 将多层嵌套展开成一个平面字典
+    flat_cfg = {}
+
+    def flatten(d, parent_key=''):
+        for k, v in d.items():
+            new_key = k if parent_key == '' else k
+            if isinstance(v, dict):
+                flatten(v, new_key)
+            else:
+                flat_cfg[new_key] = v
+
+    flatten(cfg)
+
+    return Namespace(**flat_cfg)
+
+def readPointCloud(file_path: str, file_format: str) -> o3d.geometry.PointCloud:
+    if file_format not in ["pcd", "ply"]:
+        raise ValueError(f"Unsupported file format: {file_format}")
+
+    try:
+        pcd = o3d.io.read_point_cloud(file_path)
+    except Exception as e:
+        raise ValueError(f"Couldn't read {file_format.upper()} file {file_path}: {str(e)}")
+
+    if not pcd.has_points():
+        raise ValueError(f"Loaded point cloud is empty: {file_path}")
+
+    return pcd
+
+def cloud2voxel(args: Namespace, input_pcd=None):
+    file_path = args.file_path
+    file_format = args.file_format
+    
+    voxel_map: Dict[VOXEL_LOC, OctoTree] = {}
+    
+    if input_pcd is None:
+        pcd = readPointCloud(file_path, file_format)
+    else:
+        pcd = input_pcd
+        
+    buildVoxelMap(args, pcd, voxel_map)
+    
+    return voxel_map
 
 def rotation_matrix_to_quaternion(R):
     """Convert a 3x3 rotation matrix to a quaternion [w, x, y, z]"""
@@ -36,16 +84,6 @@ def rotation_matrix_to_quaternion(R):
         z = 0.25 * S
     return [w, x, y, z]
 
-# 定义 PLY 文件的顶点数据结构
-dtype = [
-    ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),  # 位置
-    ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),  # 法向量
-    ('f_dc_0', 'f4'), ('f_dc_1', 'f4'), ('f_dc_2', 'f4'),  # 颜色
-    *[(f'f_rest_{i}', 'f4') for i in range(45)],  # 45 个 f_rest
-    ('opacity', 'f4'),  # 透明度
-    ('scale_0', 'f4'), ('scale_1', 'f4'), ('scale_2', 'f4'),  # 缩放
-    ('rot_0', 'f4'), ('rot_1', 'f4'), ('rot_2', 'f4'), ('rot_3', 'f4')  # 四元数
-]
 def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTree]:
         valid_nodes = []  # 用于保存所有不为 None 的 OctoTree 和叶子节点
         
@@ -64,6 +102,19 @@ def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTre
                             queue.append(leaf)  # 将子节点加入队列
 
         return valid_nodes
+
+args = read_yaml("config/cloud2voxel_mapping.yaml")
+voxel_map = cloud2voxel(args)
+# 定义 PLY 文件的顶点数据结构
+dtype = [
+    ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),  # 位置
+    ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),  # 法向量
+    ('f_dc_0', 'f4'), ('f_dc_1', 'f4'), ('f_dc_2', 'f4'),  # 颜色
+    *[(f'f_rest_{i}', 'f4') for i in range(45)],  # 45 个 f_rest
+    ('opacity', 'f4'),  # 透明度
+    ('scale_0', 'f4'), ('scale_1', 'f4'), ('scale_2', 'f4'),  # 缩放
+    ('rot_0', 'f4'), ('rot_1', 'f4'), ('rot_2', 'f4'), ('rot_3', 'f4')  # 四元数
+]
 
 valid_nodes = traverse_octo_tree_bfs(voxel_map)
 # 收集顶点数据，并剔除包含 NaN 的数据
@@ -88,7 +139,7 @@ for node in valid_nodes:
     # rotation = np.asarray([node.plane_ptr_.x_normal, node.plane_ptr_.y_normal, node.plane_ptr_.normal])
     quat = rotation_matrix_to_quaternion(rotation)
     # 颜色 (红色示例)
-    f_dc = [1.0, 0.0, 0.0]
+    f_dc = [0.0, 0.0, 1.0]
     f_rest = [0.0] * 45  # 高阶 SH 填充 0
     opacity = 1.0
     # scales = [-1.5*radius, -1.5*radius, -10]  # 薄片
