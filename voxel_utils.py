@@ -122,11 +122,20 @@ class OctoTree:
         self.plane_ptr_.normal = eigenvectors[:, 0]
         self.plane_ptr_.radius = np.sqrt(eigenvalues[1])
         self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
-
-        self.plane_ptr_.is_plane = True
-        self.complex = compute_complexity(np.asarray(pcd.normals))
+        
+        if len(rest_cloud.points) >= self.outliers_threshold:
+            numerator = np.abs(a * rest_points[:, 0] + b * rest_points[:, 1] + c * rest_points[:, 2] + d)
+            denominator = np.sqrt(a ** 2 + b ** 2 + c ** 2)
+            distances = numerator / denominator  
+            self.plane_ptr_.is_plane = distances.mean() <= 0.03
+            if distances.mean() <= 0.03:
+                self.complex = compute_complexity(np.asarray(pcd.normals))
+        else:
+            self.plane_ptr_.is_plane = True
+            self.complex = compute_complexity(np.asarray(pcd.normals))
         if not self.plane_ptr_.is_init:
             self.plane_ptr_.is_init = True
+                    
     def init_octo_tree(self):
         if self.points_num_ > self.max_plane_update_threshold_:
             self.init_plane(self.pcd)
