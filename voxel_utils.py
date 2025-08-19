@@ -87,9 +87,20 @@ class OctoTree:
         plane_cloud = pcd.select_by_index(inliers)
         points = np.asarray(plane_cloud.points)
         N = points.shape[0]
-        
-        obb = plane_cloud.get_oriented_bounding_box()
-        self.plane_ptr_.center = np.asarray(obb.center)
+
+        if points.shape[0] < 3:
+            obb = plane_cloud.get_axis_aligned_bounding_box()
+            return
+
+
+        if np.min(np.ptp(points, axis=0)) < 1e-6:
+            # 退化情况 → 用 AABB 替代
+            obb = plane_cloud.get_axis_aligned_bounding_box()
+        else:
+            # 正常情况 → 用 OBB
+            obb = plane_cloud.get_oriented_bounding_box()
+
+        self.plane_ptr_.center = np.asarray(obb.get_center())
         
         # PCA主成分分析
         centered_points = points - self.plane_ptr_.center
@@ -100,7 +111,10 @@ class OctoTree:
         idx = eigenvalues.argsort()
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
-        self.plane_ptr_.rotation = obb.R
+        if hasattr(obb, "R"):
+            self.plane_ptr_.rotation = obb.R
+        else:
+            self.plane_ptr_.rotation = eigenvectors
         
         rest_cloud = pcd.select_by_index(inliers, invert=True)
         rest_points = np.asarray(rest_cloud.points)
