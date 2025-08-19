@@ -86,20 +86,16 @@ def rotation_matrix_to_quaternion(R):
 
 def traverse_octo_tree_bfs(voxel_map: Dict[VOXEL_LOC, OctoTree]) -> List[OctoTree]:
         valid_nodes = []  # 用于保存所有不为 None 的 OctoTree 和叶子节点
-        
-        # 遍历 voxel_map 中每一个 voxel 和它对应的 OctoTree
         for _, octo_tree in tqdm(voxel_map.items()):
             queue = [octo_tree]  # 初始化队列，加入当前的 OctoTree
             while queue:
                 node = queue.pop(0)  # 从队列的前端移除一个节点
-                # 如果节点是叶子节点，输出信息并添加到 valid_nodes 列表
                 if node.octo_state_ == 0:
-                    valid_nodes.append(node)  # 添加叶子节点到 valid_nodes
+                    valid_nodes.append(node)
                 else:
-                    # 否则，遍历当前节点的子节点
-                    for i, leaf in enumerate(node.leaves_):
+                    for leaf in node.leaves_:
                         if leaf is not None:
-                            queue.append(leaf)  # 将子节点加入队列
+                            queue.append(leaf)
 
         return valid_nodes
 

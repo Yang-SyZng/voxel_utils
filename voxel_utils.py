@@ -71,7 +71,11 @@ class OctoTree:
         self.outliers_threshold: int = outliers_threshold
         
         self.init_octo_: bool = False
-    
+    def pca_rotation(self, pts):
+        pts = pts - pts.mean(axis=0, keepdims=True)
+        U, S, Vt = np.linalg.svd(pts, full_matrices=False)
+        R = Vt.T   # 列就是主方向
+        return R
     def init_plane(self, pcd: o3d.geometry.PointCloud):
         self.plane_ptr_.center = np.zeros((3, ), dtype=np.float64)
         self.plane_ptr_.covariance = np.zeros((3, 3), dtype=np.float64)
@@ -89,16 +93,21 @@ class OctoTree:
         N = points.shape[0]
 
         if points.shape[0] < 3:
-            obb = plane_cloud.get_axis_aligned_bounding_box()
+            # 点太少，没法算 OBB，直接返回
             return
 
-
-        if np.min(np.ptp(points, axis=0)) < 1e-6:
-            # 退化情况 → 用 AABB 替代
-            obb = plane_cloud.get_axis_aligned_bounding_box()
-        else:
-            # 正常情况 → 用 OBB
+        try:
             obb = plane_cloud.get_oriented_bounding_box()
+        except RuntimeError:
+            # OBB 失败：说明点云退化了
+            # 在点云上加微小扰动 (1e-6)，避免完全共面/共线
+            jitter = np.random.normal(scale=1e-6, size=points.shape)
+            pts_perturbed = points + jitter
+
+            pc_perturbed = o3d.geometry.PointCloud()
+            pc_perturbed.points = o3d.utility.Vector3dVector(pts_perturbed)
+
+            obb = pc_perturbed.get_oriented_bounding_box()
 
         self.plane_ptr_.center = np.asarray(obb.get_center())
         
@@ -111,10 +120,7 @@ class OctoTree:
         idx = eigenvalues.argsort()
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
-        if hasattr(obb, "R"):
-            self.plane_ptr_.rotation = obb.R
-        else:
-            self.plane_ptr_.rotation = eigenvectors
+        self.plane_ptr_.rotation = obb.R
         
         rest_cloud = pcd.select_by_index(inliers, invert=True)
         rest_points = np.asarray(rest_cloud.points)
