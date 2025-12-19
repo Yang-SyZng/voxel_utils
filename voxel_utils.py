@@ -4,6 +4,8 @@ import open3d as o3d
 import numpy as np
 from argparse import Namespace
 from tqdm import tqdm
+import yaml
+
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
         self.x = int(xyz[0])
@@ -185,9 +187,9 @@ class OctoTree:
                     self.leaves_[i].init_octo_ = True
 
 def buildVoxelMap(args: Namespace,
-                  pcd: o3d.geometry.PointCloud,
-                  feat_map: Dict[VOXEL_LOC, OctoTree]
+                  pcd: o3d.geometry.PointCloud
                   ) -> Dict[VOXEL_LOC, OctoTree]: 
+    feat_map: Dict[VOXEL_LOC, OctoTree] = {}
     max_layer = args.max_layer
     voxel_size = args.voxel_size
     outliers_threshold = args.outliers_threshold
@@ -222,3 +224,23 @@ def compute_complexity(normals: np.ndarray) -> float:
     normals = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-6)
     mean_vector = np.mean(normals, axis=0)
     return np.linalg.norm(mean_vector)
+
+def readPointCloud(file_path: str) -> o3d.geometry.PointCloud:
+    try:
+        pcd = o3d.io.read_point_cloud(file_path)
+    except Exception as e:
+        raise ValueError(f"Couldn't read file {file_path}: {str(e)}")
+
+    if not pcd.has_points():
+        raise ValueError(f"Loaded point cloud is empty: {file_path}")
+
+    return pcd
+
+def cloud2voxel(args: Namespace, ply_path: Optional[str]):
+    pcd = readPointCloud(ply_path)
+
+    voxel_map = buildVoxelMap(args, pcd)
+    return voxel_map
+
+if __name__ == '__main__':
+    pass
