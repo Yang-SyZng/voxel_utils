@@ -5,7 +5,7 @@ import numpy as np
 from argparse import Namespace
 from tqdm import tqdm
 import yaml
-
+from arguments import ModelParams
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
         self.x = int(xyz[0])
@@ -131,10 +131,10 @@ class OctoTree:
             distances = numerator / denominator  
             self.plane_ptr_.is_plane = distances.mean() <= 0.03
             if distances.mean() <= 0.03:
-                self.complex = compute_complexity(np.asarray(pcd.normals))
+                self.complex = self.compute_complexity(np.asarray(pcd.normals))
         else:
             self.plane_ptr_.is_plane = True
-            self.complex = compute_complexity(np.asarray(pcd.normals))
+            self.complex = self.compute_complexity(np.asarray(pcd.normals))
         if not self.plane_ptr_.is_init:
             self.plane_ptr_.is_init = True
                     
@@ -186,61 +186,71 @@ class OctoTree:
                         self.leaves_[i].cut_octo_tree()
                     self.leaves_[i].init_octo_ = True
 
-def buildVoxelMap(args: Namespace,
-                  pcd: o3d.geometry.PointCloud
-                  ) -> Dict[VOXEL_LOC, OctoTree]: 
-    feat_map: Dict[VOXEL_LOC, OctoTree] = {}
-    max_layer = args.max_layer
-    voxel_size = args.voxel_size
-    outliers_threshold = args.outliers_threshold
-    planer_threshold = args.plannar_threshold
+    def compute_complexity(self, normals: np.ndarray) -> float:
+        if normals.shape[0] <= 1:
+            return 0.0
+
+        normals = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-6)
+        mean_vector = np.mean(normals, axis=0)
+        return np.linalg.norm(mean_vector)
     
-    loc_xyz = np.floor(np.asarray(pcd.points) / voxel_size).astype(np.int64)
-    xyz_unique, inverse_indices, _ = np.unique(loc_xyz, return_inverse=True, return_counts=True, axis=0)
-    print("voxel map size:", len(xyz_unique))
-    for i, xyz in enumerate(tqdm(xyz_unique, desc="Building OctoTrees")):
-        position = VOXEL_LOC(xyz)
-        mask = (inverse_indices == i)
-        idx = np.where(mask)[0]
-        pcd_in_voxel = pcd.select_by_index(idx)
-        octo_tree = OctoTree(pcd=pcd_in_voxel,
-                             max_layer=max_layer,
-                             layer=0,
-                             planer_threshold=planer_threshold,
-                             outliers_threshold=outliers_threshold)
-        feat_map[position] = octo_tree
-        feat_map[position].quater_length_ = voxel_size / 2
-        feat_map[position].voxel_center_ = (0.5 + np.array([position.x, position.y, position.z])) * voxel_size
+class VoxelMap:
+    def __init__(self, cfg: ModelParams, ply_path: Optional[str]):
+        self.max_layer = cfg.max_layer
+        self.voxel_size = cfg.voxel_size
+        self.outliers_threshold = cfg.outliers_threshold
+        self.planer_threshold = cfg.planar_threshold
+        self.feat_map: Dict[VOXEL_LOC, OctoTree] = {}
+
+        self.pcd = self._readPointCloud(ply_path)
+        self.buildVoxelMap(self.pcd)
     
-    for _, value in tqdm(feat_map.items(), desc="Initializing OctoTrees"):
-        value.init_octo_tree()
-        
-    return feat_map
+    def buildVoxelMap(self, pcd: o3d.geometry.PointCloud): 
+        loc_xyz = np.floor(np.asarray(pcd.points) / self.voxel_size).astype(np.int64)
+        xyz_unique, inverse_indices, _ = np.unique(loc_xyz, return_inverse=True, return_counts=True, axis=0)
+        print("voxel map size:", len(xyz_unique))
+        for i, xyz in enumerate(tqdm(xyz_unique, desc="Building OctoTrees")):
+            position = VOXEL_LOC(xyz)
+            mask = (inverse_indices == i)
+            idx = np.where(mask)[0]
+            pcd_in_voxel = pcd.select_by_index(idx)
+            octo_tree = OctoTree(pcd=pcd_in_voxel,
+                                max_layer=self.max_layer,
+                                layer=0,
+                                planer_threshold=self.planer_threshold,
+                                outliers_threshold=self.outliers_threshold)
+            self.feat_map[position] = octo_tree
+            self.feat_map[position].quater_length_ = self.voxel_size / 2
+            self.feat_map[position].voxel_center_ = (0.5 + np.array([position.x, position.y, position.z])) * self.voxel_size
 
-def compute_complexity(normals: np.ndarray) -> float:
-    if normals.shape[0] <= 1:
-        return 0.0
+        for _, value in tqdm(self.feat_map.items(), desc="Initializing OctoTrees"):
+            value.init_octo_tree()
+    
+    def _readPointCloud(self, file_path: str) -> o3d.geometry.PointCloud:
+        try:
+            pcd = o3d.io.read_point_cloud(file_path)
+        except Exception as e:
+            raise ValueError(f"Couldn't read file {file_path}: {str(e)}")
 
-    normals = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-6)
-    mean_vector = np.mean(normals, axis=0)
-    return np.linalg.norm(mean_vector)
+        if not pcd.has_points():
+            raise ValueError(f"Loaded point cloud is empty: {file_path}")
 
-def readPointCloud(file_path: str) -> o3d.geometry.PointCloud:
-    try:
-        pcd = o3d.io.read_point_cloud(file_path)
-    except Exception as e:
-        raise ValueError(f"Couldn't read file {file_path}: {str(e)}")
+        return pcd
+    
+    def __len__(self):
+        return len(self.feat_map)
 
-    if not pcd.has_points():
-        raise ValueError(f"Loaded point cloud is empty: {file_path}")
+    def __getitem__(self, key) -> Optional[OctoTree]:
+        if isinstance(key, tuple) and len(key) == 3:
+            x, y, z = key
+            loc = VOXEL_LOC(np.array([x, y, z]))
 
-    return pcd
-
-def cloud2voxel(args: Namespace, ply_path: Optional[str]):
-    pcd = readPointCloud(ply_path)
-
-    voxel_map = buildVoxelMap(args, pcd)
-    return voxel_map
-
+        elif isinstance(key, VOXEL_LOC):
+            loc = key
+        else:
+            raise TypeError("Index must be a tuple of (x, y, z) or a VOXEL_LOC object")
+            
+        return self.feat_map.get(loc)
+    
 if __name__ == '__main__':
     pass
