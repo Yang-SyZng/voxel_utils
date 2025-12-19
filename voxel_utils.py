@@ -6,6 +6,8 @@ from argparse import Namespace
 from tqdm import tqdm
 import yaml
 from arguments import ModelParams
+from utils.graphics_utils import BasicPointCloud
+
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
         self.x = int(xyz[0])
@@ -73,19 +75,25 @@ class OctoTree:
         self.outliers_threshold: int = outliers_threshold
         
         self.init_octo_: bool = False
+
     def pca_rotation(self, pts):
         pts = pts - pts.mean(axis=0, keepdims=True)
         U, S, Vt = np.linalg.svd(pts, full_matrices=False)
         R = Vt.T   # 列就是主方向
         return R
-    def init_plane(self, pcd: o3d.geometry.PointCloud):
+    
+    def init_plane(self):
         self.plane_ptr_.center = np.zeros((3, ), dtype=np.float64)
         self.plane_ptr_.covariance = np.zeros((3, 3), dtype=np.float64)
         self.plane_ptr_.rotation = np.zeros((3, 3), dtype=np.float64)
         self.plane_ptr_.normal = np.zeros((3, ), dtype=np.float64)
         self.plane_ptr_.radius = 0
+        p = o3d.geometry.PointCloud()
+        p.points = o3d.utility.Vector3dVector(self.pcd.points)
+        p.colors = o3d.utility.Vector3dVector(self.pcd.colors)
+        p.normals = o3d.utility.Vector3dVector(self.pcd.normals)
         # 提取平面
-        plane_model, inliers = pcd.segment_plane(distance_threshold=0.01,
+        plane_model, inliers = p.segment_plane(distance_threshold=0.01,
                                                 ransac_n=3,
                                                 num_iterations=1000)
         [a, b, c, d] = plane_model
@@ -140,12 +148,16 @@ class OctoTree:
                     
     def init_octo_tree(self):
         if self.points_num_ > self.max_plane_update_threshold_:
-            self.init_plane(self.pcd)
+
+            self.init_plane()
+
             if self.plane_ptr_.is_plane:
                 self.octo_state_ = 0
             else:
                 self.octo_state_ = 1
                 self.cut_octo_tree()
+
+            # 代表该体素的点云大于阈值，已经初始化过八叉树了
             self.init_octo_ = True
         
     def cut_octo_tree(self):
@@ -195,47 +207,49 @@ class OctoTree:
         return np.linalg.norm(mean_vector)
     
 class VoxelMap:
-    def __init__(self, cfg: ModelParams, ply_path: Optional[str]):
+    def __init__(self, cfg: ModelParams, pcd: BasicPointCloud):
         self.max_layer = cfg.max_layer
         self.voxel_size = cfg.voxel_size
         self.outliers_threshold = cfg.outliers_threshold
         self.planer_threshold = cfg.planar_threshold
         self.feat_map: Dict[VOXEL_LOC, OctoTree] = {}
-
-        self.pcd = self._readPointCloud(ply_path)
-        self.buildVoxelMap(self.pcd)
+        self.buildVoxelMap(pcd)
     
-    def buildVoxelMap(self, pcd: o3d.geometry.PointCloud): 
+    def buildVoxelMap(self, pcd: BasicPointCloud): 
         loc_xyz = np.floor(np.asarray(pcd.points) / self.voxel_size).astype(np.int64)
         xyz_unique, inverse_indices, _ = np.unique(loc_xyz, return_inverse=True, return_counts=True, axis=0)
         print("voxel map size:", len(xyz_unique))
+        # --- 性能优化核心部分 ---
+        # 根据 inverse_indices 排序，把属于同一个 voxel 的点的索引排在一起
+        idx_sorted = np.argsort(inverse_indices)
+        
+        # 找到每个 voxel 边界在排序后数组中的位置
+        # 获取 inverse_indices 排序后，相邻元素发生变化的位置
+        sorted_inverse_indices = inverse_indices[idx_sorted]
+        diff = np.diff(sorted_inverse_indices)
+        change_points = np.where(diff > 0)[0] + 1
+        
+        # 一次性将所有点的索引拆分为多个数组，每个数组对应一个 voxel
+        idx_groups = np.split(idx_sorted, change_points)
+        # -----------------------
+        
         for i, xyz in enumerate(tqdm(xyz_unique, desc="Building OctoTrees")):
+            idx = idx_groups[i]
             position = VOXEL_LOC(xyz)
-            mask = (inverse_indices == i)
-            idx = np.where(mask)[0]
-            pcd_in_voxel = pcd.select_by_index(idx)
-            octo_tree = OctoTree(pcd=pcd_in_voxel,
-                                max_layer=self.max_layer,
-                                layer=0,
-                                planer_threshold=self.planer_threshold,
-                                outliers_threshold=self.outliers_threshold)
-            self.feat_map[position] = octo_tree
+            pcd_in_voxel = BasicPointCloud(points=pcd.points[idx],
+                                           colors=pcd.colors[idx],
+                                           normals=pcd.normals[idx])
+
+            self.feat_map[position] = OctoTree(pcd=pcd_in_voxel,
+                                        max_layer=self.max_layer,
+                                        layer=0,
+                                        planer_threshold=self.planer_threshold,
+                                        outliers_threshold=self.outliers_threshold)
             self.feat_map[position].quater_length_ = self.voxel_size / 2
             self.feat_map[position].voxel_center_ = (0.5 + np.array([position.x, position.y, position.z])) * self.voxel_size
 
         for _, value in tqdm(self.feat_map.items(), desc="Initializing OctoTrees"):
             value.init_octo_tree()
-    
-    def _readPointCloud(self, file_path: str) -> o3d.geometry.PointCloud:
-        try:
-            pcd = o3d.io.read_point_cloud(file_path)
-        except Exception as e:
-            raise ValueError(f"Couldn't read file {file_path}: {str(e)}")
-
-        if not pcd.has_points():
-            raise ValueError(f"Loaded point cloud is empty: {file_path}")
-
-        return pcd
     
     def __len__(self):
         return len(self.feat_map)
@@ -251,6 +265,8 @@ class VoxelMap:
             raise TypeError("Index must be a tuple of (x, y, z) or a VOXEL_LOC object")
             
         return self.feat_map.get(loc)
+    def __iter__(self):
+        return iter(self.feat_map.items())
     
 if __name__ == '__main__':
     pass
