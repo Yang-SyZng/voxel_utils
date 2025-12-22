@@ -7,6 +7,7 @@ from tqdm import tqdm
 import yaml
 from arguments import ModelParams
 from utils.graphics_utils import BasicPointCloud
+import torch
 
 class VOXEL_LOC:
     def __init__(self, xyz: np.ndarray):
@@ -46,7 +47,6 @@ class Plane:
         self.d: float = 0.0
 
         self.is_plane: bool = False
-        self.is_init: bool = False
   
 class OctoTree:
     def __init__(self, pcd: o3d.geometry.PointCloud,
@@ -97,8 +97,8 @@ class OctoTree:
                                                 ransac_n=3,
                                                 num_iterations=1000)
         [a, b, c, d] = plane_model
-        
-        plane_cloud = pcd.select_by_index(inliers)
+
+        plane_cloud = self.pcd.select_by_index(inliers)
         points = np.asarray(plane_cloud.points)
         N = points.shape[0]
         try:
@@ -127,7 +127,7 @@ class OctoTree:
         eigenvectors = eigenvectors[:, idx]
         self.plane_ptr_.rotation = obb.R
         
-        rest_cloud = pcd.select_by_index(inliers, invert=True)
+        rest_cloud = self.pcd.select_by_index(inliers, invert=True)
         rest_points = np.asarray(rest_cloud.points)
         self.plane_ptr_.normal = eigenvectors[:, 0]
         self.plane_ptr_.radius = np.sqrt(eigenvalues[1])
@@ -139,12 +139,10 @@ class OctoTree:
             distances = numerator / denominator  
             self.plane_ptr_.is_plane = distances.mean() <= 0.03
             if distances.mean() <= 0.03:
-                self.complex = self.compute_complexity(np.asarray(pcd.normals))
+                self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
         else:
             self.plane_ptr_.is_plane = True
-            self.complex = self.compute_complexity(np.asarray(pcd.normals))
-        if not self.plane_ptr_.is_init:
-            self.plane_ptr_.is_init = True
+            self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
                     
     def init_octo_tree(self):
         if self.points_num_ > self.max_plane_update_threshold_:
@@ -169,9 +167,21 @@ class OctoTree:
         # 计算子节点索引
         leafnums = 4 * xyz[:, 0] + 2 * xyz[:, 1] + xyz[:, 2]  # (N,)
         leaf_xyz_unique, inverse_indices, _ = np.unique(leafnums, return_inverse=True, return_counts=True, axis=0)
+        # --- 性能优化核心部分 ---
+        # 根据 inverse_indices 排序，把属于同一个 voxel 的点的索引排在一起
+        idx_sorted = np.argsort(inverse_indices)
+        
+        # 找到每个 voxel 边界在排序后数组中的位置
+        # 获取 inverse_indices 排序后，相邻元素发生变化的位置
+        sorted_inverse_indices = inverse_indices[idx_sorted]
+        diff = np.diff(sorted_inverse_indices)
+        change_points = np.where(diff > 0)[0] + 1
+        
+        # 一次性将所有点的索引拆分为多个数组，每个数组对应一个 voxel
+        idx_groups = np.split(idx_sorted, change_points)
+        # -----------------------
         for i, xyz in enumerate(leaf_xyz_unique):
-            mask = (inverse_indices == i)
-            idx = np.where(mask)[0]
+            idx = idx_groups[i]
             pcd_in_leaf_voxel = pcd.select_by_index(idx)
             if self.leaves_[i] is None:
                 self.leaves_[i] = OctoTree(pcd=pcd_in_leaf_voxel,
@@ -190,7 +200,7 @@ class OctoTree:
         for i in range(8):
             if self.leaves_[i] is not None:
                 if self.leaves_[i].points_num_ > self.leaves_[i].max_plane_update_threshold_:
-                    self.leaves_[i].init_plane(self.leaves_[i].pcd)
+                    self.leaves_[i].init_plane()
                     if self.leaves_[i].plane_ptr_.is_plane:
                         self.leaves_[i].octo_state_ = 0
                     else:
@@ -213,33 +223,30 @@ class VoxelMap:
         self.outliers_threshold = cfg.outliers_threshold
         self.planer_threshold = cfg.planar_threshold
         self.feat_map: Dict[VOXEL_LOC, OctoTree] = {}
-        self.buildVoxelMap(pcd)
+        self.feat_map_first = self.buildVoxelMap(pcd)
     
     def buildVoxelMap(self, pcd: BasicPointCloud): 
         loc_xyz = np.floor(np.asarray(pcd.points) / self.voxel_size).astype(np.int64)
         xyz_unique, inverse_indices, _ = np.unique(loc_xyz, return_inverse=True, return_counts=True, axis=0)
         print("voxel map size:", len(xyz_unique))
-        # --- 性能优化核心部分 ---
-        # 根据 inverse_indices 排序，把属于同一个 voxel 的点的索引排在一起
         idx_sorted = np.argsort(inverse_indices)
         
-        # 找到每个 voxel 边界在排序后数组中的位置
-        # 获取 inverse_indices 排序后，相邻元素发生变化的位置
         sorted_inverse_indices = inverse_indices[idx_sorted]
         diff = np.diff(sorted_inverse_indices)
         change_points = np.where(diff > 0)[0] + 1
         
-        # 一次性将所有点的索引拆分为多个数组，每个数组对应一个 voxel
         idx_groups = np.split(idx_sorted, change_points)
-        # -----------------------
         
         for i, xyz in enumerate(tqdm(xyz_unique, desc="Building OctoTrees")):
             idx = idx_groups[i]
             position = VOXEL_LOC(xyz)
-            pcd_in_voxel = BasicPointCloud(points=pcd.points[idx],
-                                           colors=pcd.colors[idx],
-                                           normals=pcd.normals[idx])
-
+            # pcd_in_voxel = BasicPointCloud(points=pcd.points[idx],
+            #                                colors=pcd.colors[idx],
+            #                                normals=pcd.normals[idx])
+            pcd_in_voxel = o3d.geometry.PointCloud()
+            pcd_in_voxel.points = o3d.utility.Vector3dVector(pcd.points[idx])
+            pcd_in_voxel.colors = o3d.utility.Vector3dVector(pcd.colors[idx])
+            pcd_in_voxel.normals = o3d.utility.Vector3dVector(pcd.normals[idx])
             self.feat_map[position] = OctoTree(pcd=pcd_in_voxel,
                                         max_layer=self.max_layer,
                                         layer=0,
@@ -250,7 +257,35 @@ class VoxelMap:
 
         for _, value in tqdm(self.feat_map.items(), desc="Initializing OctoTrees"):
             value.init_octo_tree()
-    
+        
+        return self.traverse_octo_tree_bfs()
+
+    def traverse_octo_tree_bfs(self) -> Dict[VOXEL_LOC, Planes]:
+        one_voxel = {}  # type: Dict[VOXEL_LOC, Planes]
+        for voxel, octo_tree in tqdm(self.feat_map.items(), desc="Building first voxel"):
+            temp = Planes()
+            queue = [octo_tree]
+            while queue:
+                node = queue.pop(0)
+                if node.plane_ptr_.is_plane:
+                    if node.plane_ptr_.center is None:
+                        temp.center.append(torch.tensor(node.plane_ptr_.center, dtype=torch.float))
+                        temp.normal.append(torch.tensor(node.plane_ptr_.normal, dtype=torch.float))
+                        temp.d.append(torch.tensor([node.plane_ptr_.d], dtype=torch.float))
+                        temp.complex.append(torch.tensor([node.complex], dtype=torch.float))
+                    else:
+                        for leaf in node.leaves_:
+                            if leaf is not None:
+                                queue.append(leaf)
+            if len(temp.center) == 0:
+                continue
+            temp.center = torch.stack(temp.center, dim=0).to("cuda")
+            temp.normal = torch.stack(temp.normal, dim=0).to("cuda")
+            temp.d = torch.cat(temp.d, dim=0).to("cuda")
+            temp.complex = torch.cat(temp.complex, dim=0).to("cuda")
+            one_voxel[voxel] = temp
+        return one_voxel
+
     def __len__(self):
         return len(self.feat_map)
 
