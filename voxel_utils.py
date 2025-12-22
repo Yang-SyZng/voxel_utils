@@ -2,9 +2,7 @@ from typing import List, Optional, Dict
 import numpy as np
 import open3d as o3d
 import numpy as np
-from argparse import Namespace
 from tqdm import tqdm
-import yaml
 from arguments import ModelParams
 from utils.graphics_utils import BasicPointCloud
 import torch
