@@ -167,17 +167,13 @@ class OctoTree:
         # 计算子节点索引
         leafnums = 4 * xyz[:, 0] + 2 * xyz[:, 1] + xyz[:, 2]  # (N,)
         leaf_xyz_unique, inverse_indices, _ = np.unique(leafnums, return_inverse=True, return_counts=True, axis=0)
-        # --- 性能优化核心部分 ---
-        # 根据 inverse_indices 排序，把属于同一个 voxel 的点的索引排在一起
+
         idx_sorted = np.argsort(inverse_indices)
         
-        # 找到每个 voxel 边界在排序后数组中的位置
-        # 获取 inverse_indices 排序后，相邻元素发生变化的位置
         sorted_inverse_indices = inverse_indices[idx_sorted]
         diff = np.diff(sorted_inverse_indices)
         change_points = np.where(diff > 0)[0] + 1
         
-        # 一次性将所有点的索引拆分为多个数组，每个数组对应一个 voxel
         idx_groups = np.split(idx_sorted, change_points)
         # -----------------------
         for i, xyz in enumerate(leaf_xyz_unique):
@@ -236,7 +232,7 @@ class VoxelMap:
         change_points = np.where(diff > 0)[0] + 1
         
         idx_groups = np.split(idx_sorted, change_points)
-        
+
         for i, xyz in enumerate(tqdm(xyz_unique, desc="Building OctoTrees")):
             idx = idx_groups[i]
             position = VOXEL_LOC(xyz)
