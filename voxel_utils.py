@@ -53,7 +53,6 @@ class OctoTree:
                  outliers_threshold: int):
         # 体素信息
         self.voxel_center_: np.ndarray
-        self.complex: float = 0.0
         self.quater_length_: float = 0.0
         self.max_layer_: int = max_layer
         self.layer_: int = layer
@@ -74,68 +73,131 @@ class OctoTree:
         self.init_octo_: bool = False
     
     def init_plane(self):
-        p = o3d.geometry.PointCloud()
-        p.points = o3d.utility.Vector3dVector(self.pcd.points)
-        p.colors = o3d.utility.Vector3dVector(self.pcd.colors)
-        p.normals = o3d.utility.Vector3dVector(self.pcd.normals)
-        # 提取平面
-        plane_model, inliers = p.segment_plane(distance_threshold=0.01,
-                                                ransac_n=3,
-                                                num_iterations=1000)
-        [a, b, c, d] = plane_model
-
-        plane_cloud = self.pcd.select_by_index(inliers)
-        points = np.asarray(plane_cloud.points)
+        points = np.asarray(self.pcd.points)
+        colors = np.asarray(self.pcd.colors)
+        normals = np.asarray(self.pcd.normals)
         N = points.shape[0]
-        try:
-            obb = plane_cloud.get_oriented_bounding_box()
-        except RuntimeError:
-            # OBB 失败：说明点云退化了
-            # 在点云上加微小扰动 (1e-6)，避免完全共面/共线
-            jitter = np.random.normal(scale=1e-6, size=points.shape)
-            pts_perturbed = points + jitter
 
-            pc_perturbed = o3d.geometry.PointCloud()
-            pc_perturbed.points = o3d.utility.Vector3dVector(pts_perturbed)
+        if N < self.outliers_threshold:
+            self.plane_ptr_.is_plane = False
+            return
+        
+        self.planes_list = [] # 存储该体素内发现的所有平面
+        remaining_mask = np.ones(N, dtype=bool)
 
-            obb = pc_perturbed.get_oriented_bounding_box()
+        # 1. 预计算每个点的局部一致性（利用你代码中的逻辑）
+        # 这里简化为：检查法向量是否属于平坦区
+        
+        while np.sum(remaining_mask) > self.outliers_threshold:
+            # 2. 找到当前剩余点中法向量最集中的方向（强核点）
+            # 统计法向量直方图或使用简单的 RANSAC 采样
+            idx = np.where(remaining_mask)[0]
+            seed_idx = idx[0] 
+            seed_normal = normals[seed_idx]
 
-        self.plane_ptr_.center = np.asarray(obb.get_center())
+            # 初始聚类：只选法线非常接近的点 (例如 < 5度)
+            core_mask = np.dot(normals[idx], seed_normal) > np.cos(np.radians(5))
+            core_indices = idx[core_mask]
+
+            if len(core_indices) < self.outliers_threshold:
+                remaining_mask[idx[0]] = False # 剔除孤立点
+                continue
+
+            # 3. 拟合理想平面
+            core_pts = points[core_indices]
+            center = np.mean(core_pts, axis=0)
+            cov = np.cov(core_pts.T)
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            best_normal = eigenvectors[:, 0]
+            best_d = -np.dot(best_normal, center)
+
+            # 4. 几何吸收：在所有剩余点中，寻找距离该平面极近的点
+            # 不管这些点的法向量是否在渐变，只要距离够近就吸收
+            all_remaining_idx = np.where(remaining_mask)[0]
+            dist_to_plane = np.abs(np.dot(points[all_remaining_idx], best_normal) + best_d)
+            
+            # 吸收阈值：dist < 0.01m 且 法线夹角在合理范围内 (例如 < 45度，防止吸收垂直面)
+            absorption_mask = (dist_to_plane < 0.01) & \
+                            (np.dot(normals[all_remaining_idx], best_normal) > np.cos(np.radians(45)))
+            
+            final_cluster_idx = all_remaining_idx[absorption_mask]
+
+            # 5. 保存平面
+            if len(final_cluster_idx) >= self.outliers_threshold:
+                p = Plane()
+                p.center = np.mean(points[final_cluster_idx], axis=0)
+                p.normal = best_normal
+                p.d = best_d
+                p.is_plane = True
+                self.planes_list.append(p)
+                
+                # 标记这些点已处理
+                remaining_mask[final_cluster_idx] = False
+            else:
+                remaining_mask[core_indices] = False
+
+        self.plane_ptr_.is_plane = len(self.planes_list) > 0
+        # # 如果处理完后剩下的点依然很多，说明还有复杂几何没提出来，需要继续切割八叉树
+        self.is_complex_region = len(remaining_mask) > self.outliers_threshold
+
+        # # 提取平面
+        # plane_model, inliers = p.segment_plane(distance_threshold=0.01,
+        #                                         ransac_n=3,
+        #                                         num_iterations=1000)
+        # [a, b, c, d] = plane_model
+
+        # plane_cloud = self.pcd.select_by_index(inliers)
+        # points = np.asarray(plane_cloud.points)
+        # N = points.shape[0]
+        # try:
+        #     obb = plane_cloud.get_oriented_bounding_box()
+        # except RuntimeError:
+        #     # OBB 失败：说明点云退化了
+        #     # 在点云上加微小扰动 (1e-6)，避免完全共面/共线
+        #     jitter = np.random.normal(scale=1e-6, size=points.shape)
+        #     pts_perturbed = points + jitter
+
+        #     pc_perturbed = o3d.geometry.PointCloud()
+        #     pc_perturbed.points = o3d.utility.Vector3dVector(pts_perturbed)
+
+        #     obb = pc_perturbed.get_oriented_bounding_box()
+
+        # self.plane_ptr_.center = np.asarray(obb.get_center())
         
-        # PCA主成分分析
-        centered_points = points - self.plane_ptr_.center
-        self.plane_ptr_.covariance = centered_points.T @ centered_points / N
+        # # PCA主成分分析
+        # centered_points = points - self.plane_ptr_.center
+        # self.plane_ptr_.covariance = centered_points.T @ centered_points / N
         
-        # 特征值分解
-        eigenvalues, eigenvectors = np.linalg.eigh(self.plane_ptr_.covariance)
-        idx = eigenvalues.argsort()
-        eigenvalues = eigenvalues[idx]
-        eigenvectors = eigenvectors[:, idx]
-        self.plane_ptr_.rotation = obb.R
+        # # 特征值分解
+        # eigenvalues, eigenvectors = np.linalg.eigh(self.plane_ptr_.covariance)
+        # idx = eigenvalues.argsort()
+        # eigenvalues = eigenvalues[idx]
+        # eigenvectors = eigenvectors[:, idx]
+        # self.plane_ptr_.rotation = obb.R
         
-        rest_cloud = self.pcd.select_by_index(inliers, invert=True)
-        rest_points = np.asarray(rest_cloud.points)
-        self.plane_ptr_.normal = eigenvectors[:, 0]
-        self.plane_ptr_.radius = np.sqrt(eigenvalues[1])
-        self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
+        # rest_cloud = self.pcd.select_by_index(inliers, invert=True)
+        # rest_points = np.asarray(rest_cloud.points)
+        # self.plane_ptr_.normal = eigenvectors[:, 0]
+        # self.plane_ptr_.radius = np.sqrt(eigenvalues[1])
+        # self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal.squeeze(), self.plane_ptr_.center)
         
-        if len(rest_cloud.points) >= self.outliers_threshold:
-            numerator = np.abs(a * rest_points[:, 0] + b * rest_points[:, 1] + c * rest_points[:, 2] + d)
-            denominator = np.sqrt(a ** 2 + b ** 2 + c ** 2)
-            distances = numerator / denominator  
-            self.plane_ptr_.is_plane = bool(distances.mean() <= 0.03)
-            if distances.mean() <= 0.03:
-                self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
-        else:
-            self.plane_ptr_.is_plane = True
-            self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
+        # if len(rest_cloud.points) >= self.outliers_threshold:
+        #     numerator = np.abs(a * rest_points[:, 0] + b * rest_points[:, 1] + c * rest_points[:, 2] + d)
+        #     denominator = np.sqrt(a ** 2 + b ** 2 + c ** 2)
+        #     distances = numerator / denominator  
+        #     self.plane_ptr_.is_plane = bool(distances.mean() <= 0.03)
+        #     if distances.mean() <= 0.03:
+        #         self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
+        # else:
+        #     self.plane_ptr_.is_plane = True
+        #     self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
                     
     def init_octo_tree(self):
         if self.points_num_ > self.max_plane_update_threshold_:
 
             self.init_plane()
 
-            if not self.plane_ptr_.is_plane:
+            if not self.plane_ptr_.is_plane and self.is_complex_region:
                 self.octo_state_ = 1
                 self.cut_octo_tree()
 
