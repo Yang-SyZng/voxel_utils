@@ -4,5 +4,6 @@ __pycache__
 /.vscode
 /test
 ./archive
-./point_cloud.ply
+point_cloud.ply
 SIBR_viewers_linux_ver
+bash.sh

@@ -3,6 +3,9 @@ from voxel_utils import VoxelMap, OctoTree, Plane
 from tqdm import tqdm
 from scene.dataset_readers import fetchPly
 from types import SimpleNamespace
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import numpy as np
 # 定义 PLY 文件的顶点数据结构
 dtype = [
     ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),  # 位置
@@ -78,6 +81,80 @@ def rotation_matrix_to_quaternion(R):
         z = 0.25 * S
     return [w, x, y, z]
 
+
+def visualize_planes_mpl(voxel_map_first, alpha=0.5):
+    """
+    批量显示矩形面片
+    :param planes_list: 包含 Plane 对象的列表，每个对象需有 center, rotation, scale 属性
+    :param alpha: 透明度
+    """
+    fig = plt.figure(figsize=(100, 100))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    all_verts = []
+    
+    for node in voxel_map_first:
+        try:
+            c = node.plane_ptr_.center
+        except AttributeError:
+            continue
+        # 1. 获取参数
+        c = node.plane_ptr_.center
+        R = node.plane_ptr_.rotation
+        # 假设 scale 是 [width, height]
+        sw, sh = node.plane_ptr_.scale0, node.plane_ptr_.scale1
+        
+        # 2. 定义局部坐标系下的 4 个顶点 (XY平面)
+        local_verts = np.array([
+            [-sw, -sh, 0],
+            [ sw, -sh, 0],
+            [ sw,  sh, 0],
+            [-sw,  sh, 0]
+        ])
+        # local_verts = np.array([
+        #     [-sw/2, -sh/2, 0],
+        #     [ sw/2, -sh/2, 0],
+        #     [ sw/2,  sh/2, 0],
+        #     [-sw/2,  sh/2, 0]
+        # ])
+        
+        # 3. 变换到世界坐标系: P_world = R * P_local + Center
+        # 注意：R 是 3x3，local_verts 是 4x3，需要转置进行矩阵乘法
+        world_verts = (R @ local_verts.T).T + c
+        all_verts.append(world_verts)
+
+    # 4. 创建 Poly3DCollection 批量添加
+    # facecolors 可以传入列表来为每个面片设置不同颜色
+    poly_collection = Poly3DCollection(all_verts, alpha=alpha, facecolors='cyan', edgecolors='b', linewidths=0.5)
+    
+    ax.add_collection3d(poly_collection)
+
+    # 5. 设置坐标轴范围 (Matplotlib 3D 需手动调整范围以正常显示)
+    all_points = np.vstack(all_verts)
+    max_range = np.array([all_points[:,0].max()-all_points[:,0].min(), 
+                          all_points[:,1].max()-all_points[:,1].min(), 
+                          all_points[:,2].max()-all_points[:,2].min()]).max() / 2.0
+    mid_x = (all_points[:,0].max()+all_points[:,0].min()) * 0.5
+    mid_y = (all_points[:,1].max()+all_points[:,1].min()) * 0.5
+    mid_z = (all_points[:,2].max()+all_points[:,2].min()) * 0.5
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+    ax.axis('off')
+    # 1. 关闭网格线
+    ax.grid(False) 
+
+    # 2. 隐藏背景面板（透明化 3D 盒子的三个面）
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+
+    # 3. 隐藏坐标轴线（但保留标签，可选）
+    ax.xaxis.line.set_color((1.0, 1.0, 1.0, 0.0))
+    ax.yaxis.line.set_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.line.set_color((1.0, 1.0, 1.0, 0.0))
+    plt.show()
+
 def generate_ply(voxel_map_first):
     vertices = []
     for node in voxel_map_first:
@@ -133,7 +210,7 @@ def main(cfg, ply_path):
     pcd = readPointCloud(ply_path)
     voxel_map = VoxelMap(cfg=cfg, pcd=pcd)
     voxel_map_first = voxel_map.feat_map_first
-    generate_ply(voxel_map_first=voxel_map_first)
+    visualize_planes_mpl(voxel_map_first)
 
 if __name__ == "__main__":
     ply_path = "input.ply"
