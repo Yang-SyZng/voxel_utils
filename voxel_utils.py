@@ -23,7 +23,6 @@ class VOXEL_LOC:
 
     def __repr__(self):
         return f"VOXEL_LOC({self.x}, {self.y}, {self.z})"
-
     
 class Planes:
     def __init__(self):
@@ -34,12 +33,12 @@ class Planes:
 
 class Plane:
     def __init__(self):
-        self.center: np.ndarray
-        self.normal: np.ndarray
-        self.y_normal: np.ndarray
-        self.x_normal: np.ndarray
-        self.covariance: np.ndarray
-        self.rotation: np.ndarray
+        self.center = np.zeros((3, ), dtype=np.float64)
+        self.normal = np.zeros((3, ), dtype=np.float64)
+        self.y_normal = np.zeros((3, ), dtype=np.float64)
+        self.x_normal = np.zeros((3, ), dtype=np.float64)
+        self.covariance = np.zeros((3, 3), dtype=np.float64)
+        self.rotation = np.zeros((3, 3), dtype=np.float64)
 
         self.radius: float = 0.0
         self.d: float = 0.0
@@ -73,19 +72,8 @@ class OctoTree:
         self.outliers_threshold: int = outliers_threshold
         
         self.init_octo_: bool = False
-
-    def pca_rotation(self, pts):
-        pts = pts - pts.mean(axis=0, keepdims=True)
-        U, S, Vt = np.linalg.svd(pts, full_matrices=False)
-        R = Vt.T   # 列就是主方向
-        return R
     
     def init_plane(self):
-        self.plane_ptr_.center = np.zeros((3, ), dtype=np.float64)
-        self.plane_ptr_.covariance = np.zeros((3, 3), dtype=np.float64)
-        self.plane_ptr_.rotation = np.zeros((3, 3), dtype=np.float64)
-        self.plane_ptr_.normal = np.zeros((3, ), dtype=np.float64)
-        self.plane_ptr_.radius = 0
         p = o3d.geometry.PointCloud()
         p.points = o3d.utility.Vector3dVector(self.pcd.points)
         p.colors = o3d.utility.Vector3dVector(self.pcd.colors)
@@ -135,7 +123,7 @@ class OctoTree:
             numerator = np.abs(a * rest_points[:, 0] + b * rest_points[:, 1] + c * rest_points[:, 2] + d)
             denominator = np.sqrt(a ** 2 + b ** 2 + c ** 2)
             distances = numerator / denominator  
-            self.plane_ptr_.is_plane = distances.mean() <= 0.03
+            self.plane_ptr_.is_plane = bool(distances.mean() <= 0.03)
             if distances.mean() <= 0.03:
                 self.complex = self.compute_complexity(np.asarray(self.pcd.normals))
         else:
@@ -147,9 +135,7 @@ class OctoTree:
 
             self.init_plane()
 
-            if self.plane_ptr_.is_plane:
-                self.octo_state_ = 0
-            else:
+            if not self.plane_ptr_.is_plane:
                 self.octo_state_ = 1
                 self.cut_octo_tree()
 
@@ -252,33 +238,22 @@ class VoxelMap:
         for _, value in tqdm(self.feat_map.items(), desc="Initializing OctoTrees"):
             value.init_octo_tree()
         
-        return self.traverse_octo_tree_bfs()
+        return self.bfs_valid_nodes()
 
-    def traverse_octo_tree_bfs(self) -> Dict[VOXEL_LOC, Planes]:
-        one_voxel = {}  # type: Dict[VOXEL_LOC, Planes]
-        for voxel, octo_tree in tqdm(self.feat_map.items(), desc="Building first voxel"):
-            temp = Planes()
+    def bfs_valid_nodes(self):
+        valid_nodes = []
+        for _, octo_tree in tqdm(self.feat_map.items(), desc="Building first voxel"):
             queue = [octo_tree]
             while queue:
                 node = queue.pop(0)
-                if node.plane_ptr_.is_plane:
-                    if node.plane_ptr_.center is None:
-                        temp.center.append(torch.tensor(node.plane_ptr_.center, dtype=torch.float))
-                        temp.normal.append(torch.tensor(node.plane_ptr_.normal, dtype=torch.float))
-                        temp.d.append(torch.tensor([node.plane_ptr_.d], dtype=torch.float))
-                        temp.complex.append(torch.tensor([node.complex], dtype=torch.float))
-                    else:
-                        for leaf in node.leaves_:
-                            if leaf is not None:
-                                queue.append(leaf)
-            if len(temp.center) == 0:
-                continue
-            temp.center = torch.stack(temp.center, dim=0).to("cuda")
-            temp.normal = torch.stack(temp.normal, dim=0).to("cuda")
-            temp.d = torch.cat(temp.d, dim=0).to("cuda")
-            temp.complex = torch.cat(temp.complex, dim=0).to("cuda")
-            one_voxel[voxel] = temp
-        return one_voxel
+                if node.octo_state_ == 0:
+                    if node.plane_ptr_.is_plane:
+                        valid_nodes.append(node)
+                else:
+                    for leaf in node.leaves_:
+                        if leaf is not None:
+                            queue.append(leaf)
+        return valid_nodes
 
     def __len__(self):
         return len(self.feat_map)
