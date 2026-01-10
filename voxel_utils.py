@@ -86,38 +86,63 @@ class OctoTree:
         [a, b, c, d] = plane_model
 
         plane_cloud = self.pcd.select_by_index(inliers)
-        # 1. 计算几何中心 (Center)
+        # 1. 基础特征分解获取法线
         points = np.asarray(plane_cloud.points)
-        center = np.mean(points, axis=0)
-        self.plane_ptr_.center = center
-
-        # 1. 获取均值和协方差矩阵
-        mean, cov = p.compute_mean_and_covariance()
+        mean, cov = plane_cloud.compute_mean_and_covariance()
         self.plane_ptr_.center = np.asarray(mean)
-
-        # 2. 特征分解
         eigenvalues, eigenvectors = np.linalg.eigh(cov)
+        normal = eigenvectors[:, 0] # 锁定 Z 轴
 
-        # 3. 核心修正：重新排序轴的顺序
-        # 假设你希望：X轴=最长方向, Y轴=次长方向, Z轴=法线方向(最短)
-        # eigh 默认是升序(最小的在先)，所以我们反转它
-        idx = np.argsort(eigenvalues)[::-1] 
-        eigenvalues = eigenvalues[idx]
-        R = eigenvectors[:, idx] # 此时 R 的列分别为 [主轴, 次轴, 法线]
+        # 2. 构造一个稳定的局部基准坐标系 (tmp_x, tmp_y)
+        # 使用世界坐标 X 轴作为投影基准
+        world_ref = np.array([1.0, 0.0, 0.0])
+        if abs(np.dot(normal, world_ref)) > 0.9:
+            world_ref = np.array([0.0, 1.0, 0.0])
 
-        # 4. 核心修正：确保 R 是右手坐标系 (Right-handed System)
-        # 旋转矩阵的行列式必须为 1。如果为 -1，说明是镜像/左手系。
+        tmp_x = world_ref - np.dot(world_ref, normal) * normal
+        tmp_x /= np.linalg.norm(tmp_x)
+        tmp_y = np.cross(normal, tmp_x)
+
+        # 3. 2D 投影与 PCA
+        centered_pts = points - self.plane_ptr_.center
+        pts_2d = np.column_stack((np.dot(centered_pts, tmp_x), np.dot(centered_pts, tmp_y)))
+        cov_2d = np.cov(pts_2d.T)
+        ev_2d, evec_2d = np.linalg.eigh(cov_2d)
+
+        # 4. 关键：解决对齐歧义
+        # 判断长宽比。如果长宽比不明显（如 < 1.2），则直接对齐到基准坐标系 (tmp_x)
+        # 否则，使用 2D PCA 的主方向
+        if ev_2d[1] / (ev_2d[0] + 1e-6) > 1.2:
+            v_major_2d = evec_2d[:, 1]
+        else:
+            v_major_2d = np.array([1.0, 0.0]) # 强行对齐到预设的 tmp_x
+
+        # 5. 解决符号歧义 (确保 X 轴方向始终倾向于世界坐标正方向)
+        # 如果得到的 2D 向量与预设基准方向相反，则翻转
+        if v_major_2d[0] < 0: 
+            v_major_2d = -v_major_2d
+
+        # 6. 还原回 3D 并构建 R
+        new_x = v_major_2d[0] * tmp_x + v_major_2d[1] * tmp_y
+        new_x /= np.linalg.norm(new_x)
+        new_y = np.cross(normal, new_x)
+
+        R = np.column_stack((new_x, new_y, normal))
         if np.linalg.det(R) < 0:
-            # 翻转法线轴（第三列）的方向，使其符合右手定则
-            R[:, 2] = -R[:, 2]
+            new_y = -new_y
+            R = np.column_stack((new_x, new_y, normal))
 
         self.plane_ptr_.rotation = R
 
+        # 7. 计算 Scale (使用对齐后的跨度)
+        proj_x = np.dot(centered_pts, new_x)
+        proj_y = np.dot(centered_pts, new_y)
+        self.plane_ptr_.scale0 = np.ptp(proj_x)
+        self.plane_ptr_.scale1 = np.ptp(proj_y)
+
+        # --- 处理离群点 ---
         rest_cloud = self.pcd.select_by_index(inliers, invert=True)
         rest_points = np.asarray(rest_cloud.points)
-        self.plane_ptr_.scale0 = np.sqrt(eigenvalues[0])
-        self.plane_ptr_.scale1 = np.sqrt(eigenvalues[1])
-        self.plane_ptr_.normal = R[:, 2] # 现在的 Z 轴就是法线
         self.plane_ptr_.d = -np.dot(self.plane_ptr_.normal, self.plane_ptr_.center)
         
         if len(rest_cloud.points) >= self.outliers_threshold:

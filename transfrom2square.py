@@ -105,18 +105,18 @@ def visualize_planes_mpl(voxel_map_first, alpha=0.5):
         sw, sh = node.plane_ptr_.scale0, node.plane_ptr_.scale1
         
         # 2. 定义局部坐标系下的 4 个顶点 (XY平面)
-        local_verts = np.array([
-            [-sw, -sh, 0],
-            [ sw, -sh, 0],
-            [ sw,  sh, 0],
-            [-sw,  sh, 0]
-        ])
         # local_verts = np.array([
-        #     [-sw/2, -sh/2, 0],
-        #     [ sw/2, -sh/2, 0],
-        #     [ sw/2,  sh/2, 0],
-        #     [-sw/2,  sh/2, 0]
+        #     [-sw, -sh, 0],
+        #     [ sw, -sh, 0],
+        #     [ sw,  sh, 0],
+        #     [-sw,  sh, 0]
         # ])
+        local_verts = np.array([
+            [-sw/2, -sh/2, 0],
+            [ sw/2, -sh/2, 0],
+            [ sw/2,  sh/2, 0],
+            [-sw/2,  sh/2, 0]
+        ])
         
         # 3. 变换到世界坐标系: P_world = R * P_local + Center
         # 注意：R 是 3x3，local_verts 是 4x3，需要转置进行矩阵乘法
@@ -129,18 +129,29 @@ def visualize_planes_mpl(voxel_map_first, alpha=0.5):
     
     ax.add_collection3d(poly_collection)
 
-    # 5. 设置坐标轴范围 (Matplotlib 3D 需手动调整范围以正常显示)
+    # 5. 优化：摆脱正方形限制，按实际物理比例填满窗口
     all_points = np.vstack(all_verts)
-    max_range = np.array([all_points[:,0].max()-all_points[:,0].min(), 
-                          all_points[:,1].max()-all_points[:,1].min(), 
-                          all_points[:,2].max()-all_points[:,2].min()]).max() / 2.0
-    mid_x = (all_points[:,0].max()+all_points[:,0].min()) * 0.5
-    mid_y = (all_points[:,1].max()+all_points[:,1].min()) * 0.5
-    mid_z = (all_points[:,2].max()+all_points[:,2].min()) * 0.5
-    ax.set_xlim(mid_x - max_range, mid_x + max_range)
-    ax.set_ylim(mid_y - max_range, mid_y + max_range)
-    ax.set_zlim(mid_z - max_range, mid_z + max_range)
-    ax.axis('off')
+    
+    # 获取每个维度的实际极值
+    x_min, x_max = all_points[:,0].min(), all_points[:,0].max()
+    y_min, y_max = all_points[:,1].min(), all_points[:,1].max()
+    z_min, z_max = all_points[:,2].min(), all_points[:,2].max()
+    
+    # 计算实际跨度
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+    z_span = z_max - z_min
+    
+    # 设置紧凑的坐标轴范围
+    # 增加 5% 的留白，防止面片紧贴窗口边缘
+    padding = 0.05
+    ax.set_xlim(x_min - padding * x_span, x_max + padding * x_span)
+    ax.set_ylim(y_min - padding * y_span, y_max + padding * y_span)
+    ax.set_zlim(z_min - padding * z_span, z_max + padding * z_span)
+
+    # 【关键】设置 box_aspect 确保视觉比例与实际物理比例一致
+    # 这样即使场景很长，Matplotlib 也会以正确的长宽比显示，而不是压缩成正方形
+    ax.set_box_aspect((x_span, y_span, z_span))
     # 1. 关闭网格线
     ax.grid(False) 
 
